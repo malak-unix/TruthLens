@@ -1,10 +1,17 @@
+from typing import Optional, List
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from app.mock_news import mock_news
-from app.schemas import AnalyzeRequest
+from app.schemas import AnalyzeRequest, NewsItem
 from app.analyzer import analyze_text_content
 
-app = FastAPI(title="TruthLens API")
+app = FastAPI(
+    title="TruthLens API",
+    description="Backend API for real-time credibility analysis and news monitoring.",
+    version="1.0.0"
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -20,15 +27,21 @@ def root():
     return {"message": "TruthLens backend is running"}
 
 
-@app.get("/news")
-def get_news(country: str | None = None, category: str | None = None):
+@app.get("/news", response_model=List[NewsItem])
+def get_news(country: Optional[str] = None, category: Optional[str] = None):
     results = mock_news
 
     if country:
-        results = [item for item in results if item["country"].lower() == country.lower()]
+        results = [
+            item for item in results
+            if item["country"].lower() == country.lower()
+        ]
 
     if category:
-        results = [item for item in results if item["category"].lower() == category.lower()]
+        results = [
+            item for item in results
+            if item["category"].lower() == category.lower()
+        ]
 
     return results
 
