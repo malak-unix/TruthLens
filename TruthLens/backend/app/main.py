@@ -46,11 +46,10 @@ def get_news(country: Optional[str] = None, category: Optional[str] = None):
     return results
 
 
-@app.get("/categories")
+@app.get("/categories", response_model=List[str])
 def get_categories():
     categories = sorted(list(set(item["category"] for item in mock_news)))
     return categories
-
 
 @app.post("/analyze")
 def analyze_content(payload: AnalyzeRequest):
