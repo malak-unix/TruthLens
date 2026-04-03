@@ -176,7 +176,7 @@ function buildEmptyAssistantReply() {
       "Ask which sources should confirm the story.",
     ],
     grounded_in_scope: true,
-    model: "gemini-1.5-flash",
+    model: "local-fallback",
   };
 }
 

@@ -69,6 +69,47 @@ def build_suggested_checks(payload: ChatRequest) -> List[str]:
     return checks[:3]
 
 
+def build_local_fallback_answer(payload: ChatRequest) -> str:
+    message = payload.message.strip()
+    lowered = message.lower()
+
+    if not message:
+        return "Please enter a question or claim for the TruthLens assistant."
+
+    if any(keyword in lowered for keyword in ["summary", "summarize", "resume"]):
+        if payload.article_summary:
+            return (
+                f"Summary: {payload.article_summary.strip()} "
+                "Before trusting it, confirm the primary source, the publication date, and one independent corroboration."
+            )
+        if payload.article_title:
+            return (
+                f"Summary: the claim appears to be about '{payload.article_title.strip()}'. "
+                "Open the original article and verify who is making the claim and what evidence is cited."
+            )
+
+    if any(keyword in lowered for keyword in ["score", "explain", "why", "pourquoi", "credibility"]):
+        if payload.article_score is not None and payload.article_label:
+            return (
+                f"The current item is scored {payload.article_score}/100 with label '{payload.article_label}'. "
+                "This usually reflects source reputation, contextual detail, and whether the claim looks corroborated or sensational."
+            )
+        return "A credibility score is usually driven by source quality, corroboration, and how much concrete context the content provides."
+
+    if any(keyword in lowered for keyword in ["rephrase", "rewrite", "reformulate"]):
+        if payload.article_title:
+            return (
+                "A clearer fact-check question would be: "
+                f"'What verified evidence confirms or disproves the claim that {payload.article_title.strip()}?'"
+            )
+        return "A clearer fact-check question would be: 'What verified evidence supports this claim, and which official sources confirm it?'"
+
+    return (
+        "Start with the original source, then confirm the date, named actors, and any official statement. "
+        "If the claim is urgent or sensational, treat it as unverified until two independent sources align."
+    )
+
+
 def extract_answer(data: dict) -> str:
     candidates = data.get("candidates") or []
     if not candidates:
@@ -94,12 +135,9 @@ class ChatService:
 
         if not self.is_configured():
             return ChatResponse(
-                answer=(
-                    "Gemini is not configured yet. Add a valid GEMINI_API_KEY in "
-                    "backend/.env or backend/.env.example to enable live assistant answers."
-                ),
+                answer=build_local_fallback_answer(payload),
                 suggested_checks=build_suggested_checks(payload),
-                model=self.settings.gemini_model,
+                model="local-fallback",
                 grounded_in_scope=True,
             )
 

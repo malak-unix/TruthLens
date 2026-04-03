@@ -3,7 +3,7 @@ import sqlite3
 from pathlib import Path
 from typing import Optional
 
-from app.mock_news import mock_news
+from app.news_sources import get_seed_news
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = BASE_DIR / "truthlens.db"
@@ -72,13 +72,34 @@ def seed_news_if_empty():
     count = cursor.fetchone()["count"]
 
     if count == 0:
-        for item in mock_news:
-            cursor.execute("""
-            INSERT OR IGNORE INTO news_articles (
+        upsert_news_items(cursor, get_seed_news(), "initial_seed")
+
+    conn.commit()
+    conn.close()
+
+
+def upsert_news_items(cursor, items: list[dict], batch_label: str):
+    for item in items:
+        cursor.execute(
+            """
+            INSERT INTO news_articles (
                 title, source_name, published_at, country, category, url,
-                description, credibility_score, credibility_label, explanation, batch_label
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
+                description, credibility_score, credibility_label, explanation, batch_label, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(url) DO UPDATE SET
+                title = excluded.title,
+                source_name = excluded.source_name,
+                published_at = excluded.published_at,
+                country = excluded.country,
+                category = excluded.category,
+                description = excluded.description,
+                credibility_score = excluded.credibility_score,
+                credibility_label = excluded.credibility_label,
+                explanation = excluded.explanation,
+                batch_label = excluded.batch_label,
+                fetched_at = CURRENT_TIMESTAMP
+            """,
+            (
                 item["title"],
                 item["source_name"],
                 item["published_at"],
@@ -89,11 +110,22 @@ def seed_news_if_empty():
                 item["credibility_score"],
                 item["credibility_label"],
                 item["explanation"],
-                "initial_seed"
-            ))
+                batch_label,
+            ),
+        )
 
+
+def refresh_news_batch(batch_label: str):
+    conn = get_connection()
+    cursor = conn.cursor()
+    items = get_seed_news()
+    cursor.execute("DELETE FROM news_articles")
+    upsert_news_items(cursor, items, batch_label)
+    cursor.execute("SELECT COUNT(*) as count FROM news_articles")
+    total_rows = cursor.fetchone()["count"]
     conn.commit()
     conn.close()
+    return total_rows
 
 
 def get_news_from_db(country: Optional[str] = None, category: Optional[str] = None):

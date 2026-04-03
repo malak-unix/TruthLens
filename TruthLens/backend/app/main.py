@@ -26,6 +26,7 @@ from app.database import (
     create_user,
     get_user_by_email,
     get_user_by_id,
+    refresh_news_batch,
 )
 from app.auth_utils import hash_password, verify_password, create_access_token, decode_access_token
 from app.scheduler import start_scheduler
@@ -173,6 +174,13 @@ def get_news(country: Optional[str] = None, category: Optional[str] = None):
 @app.get("/categories", response_model=List[str])
 def get_categories():
     return get_categories_from_db()
+
+
+@app.post("/news/refresh")
+def refresh_news_now():
+    batch_label = "manual_refresh"
+    count = refresh_news_batch(batch_label)
+    return {"status": "ok", "batch_label": batch_label, "items_refreshed": count}
 
 
 @app.post("/analyze")

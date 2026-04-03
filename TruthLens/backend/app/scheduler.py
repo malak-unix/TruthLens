@@ -2,8 +2,7 @@ from datetime import datetime
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
-from app.database import get_connection
-from app.mock_news import mock_news
+from app.database import refresh_news_batch
 
 
 def get_batch_label():
@@ -17,38 +16,9 @@ def get_batch_label():
 
 
 def refresh_news():
-    conn = get_connection()
-    cursor = conn.cursor()
     batch_label = get_batch_label()
-
-    for item in mock_news:
-        cursor.execute("""
-        INSERT OR REPLACE INTO news_articles (
-            id, title, source_name, published_at, country, category, url,
-            description, credibility_score, credibility_label, explanation, batch_label, fetched_at
-        )
-        VALUES (
-            (SELECT id FROM news_articles WHERE url = ?),
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP
-        )
-        """, (
-            item["url"],
-            item["title"],
-            item["source_name"],
-            item["published_at"],
-            item["country"],
-            item["category"],
-            item["url"],
-            item["description"],
-            item["credibility_score"],
-            item["credibility_label"],
-            item["explanation"],
-            batch_label
-        ))
-
-    conn.commit()
-    conn.close()
-    print(f"[TruthLens Scheduler] refresh_news executed with batch: {batch_label}")
+    count = refresh_news_batch(batch_label)
+    print(f"[TruthLens Scheduler] refresh_news executed with batch: {batch_label} ({count} items)")
 
 
 def start_scheduler():

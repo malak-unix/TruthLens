@@ -1,1 +1,4 @@
 TruthLens.git.backup/
+TruthLens/backend/.env
+TruthLens/frontend/.env.local
+*.log
