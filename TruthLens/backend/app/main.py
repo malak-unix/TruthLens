@@ -25,13 +25,19 @@ from app.database import (
     get_user_by_id,
 )
 from app.auth_utils import hash_password, verify_password, create_access_token, decode_access_token
+from app.scheduler import start_scheduler
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
     seed_news_if_empty()
-    yield
+    scheduler = start_scheduler()
+    app.state.scheduler = scheduler
+    try:
+        yield
+    finally:
+        scheduler.shutdown(wait=False)
 
 
 app = FastAPI(
