@@ -32,6 +32,7 @@ import {
   fetchNews,
   fetchCategories,
   analyzeContent,
+  chatWithAssistant,
   registerUser,
   loginUser,
   fetchCurrentUser,
@@ -158,6 +159,18 @@ function buildEmptyAnalysis() {
   };
 }
 
+function buildEmptyAssistantReply() {
+  return {
+    answer:
+      "Ask the TruthLens assistant to summarize a claim, explain a credibility score, or suggest verification steps.",
+    suggested_checks: [
+      "Paste a short claim or headline.",
+      "Ask what to verify first.",
+      "Ask which sources should confirm the story.",
+    ],
+  };
+}
+
 function mapAnalysisResult(result) {
   return {
     title: getAnalysisTitle(result.credibility_label),
@@ -255,6 +268,8 @@ export function DashboardPage() {
   const [factCheckMode, setFactCheckMode] = useState("url");
   const [factInput, setFactInput] = useState("");
   const [chartReady, setChartReady] = useState(false);
+  const [assistantInput, setAssistantInput] = useState("");
+  const [assistantReply, setAssistantReply] = useState(buildEmptyAssistantReply());
 
   const [articles, setArticles] = useState([]);
   const [articleCategories, setArticleCategories] = useState(["All"]);
@@ -489,6 +504,38 @@ export function DashboardPage() {
       pushNotification("Analysis failed", "The backend could not process this request.", "danger");
     } finally {
       setAnalyzing(false);
+    }
+  }
+
+  async function handleAssistantAsk() {
+    const message = assistantInput.trim();
+
+    if (!message) {
+      setAssistantReply(buildEmptyAssistantReply());
+      return;
+    }
+
+    const contextArticle = visibleArticles[0];
+
+    try {
+      const result = await chatWithAssistant({
+        message,
+        article_title: contextArticle?.title,
+        article_summary: contextArticle?.summary,
+        article_score: contextArticle?.score,
+        article_label: contextArticle?.badge,
+      });
+
+      setAssistantReply(result);
+    } catch (error) {
+      console.error("Assistant request failed:", error);
+      setAssistantReply({
+        answer: "The assistant is temporarily unavailable.",
+        suggested_checks: [
+          "Retry the request in a moment.",
+          "Use the Fact-Check Corner while the assistant is unavailable.",
+        ],
+      });
     }
   }
 
@@ -958,6 +1005,52 @@ export function DashboardPage() {
                 {tip}
               </span>
             ))}
+          </div>
+        </section>
+
+        <section className="side-card">
+          <div className="side-card__header">
+            <div className="section-title">
+              <Sparkles size={20} />
+              <h3>Assistant</h3>
+            </div>
+          </div>
+
+          <textarea
+            className="fact-check-input"
+            rows={4}
+            placeholder="Ask for a summary, an explanation of the score, or next verification steps..."
+            value={assistantInput}
+            onChange={(event) => setAssistantInput(event.target.value)}
+          />
+
+          <button
+            type="button"
+            className="primary-button"
+            onClick={handleAssistantAsk}
+          >
+            Ask Assistant
+          </button>
+
+          <div
+            className="analysis-preview"
+            style={{ "--analysis-accent": "var(--warning-strong)" }}
+          >
+            <div className="analysis-preview__header">
+              <div>
+                <p className="analysis-preview__eyebrow">TruthLens Assistant</p>
+                <strong>Guided fact-check support</strong>
+              </div>
+              <span className="status-chip status-chip-warning">Scoped</span>
+            </div>
+
+            <p>{assistantReply.answer}</p>
+
+            <ul className="signal-list">
+              {assistantReply.suggested_checks.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
           </div>
         </section>
 
