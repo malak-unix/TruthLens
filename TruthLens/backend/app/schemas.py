@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, List
 
 
@@ -49,3 +49,18 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserPublic
+
+
+class ChatRequest(BaseModel):
+    message: str
+    article_title: Optional[str] = None
+    article_summary: Optional[str] = None
+    article_score: Optional[int] = None
+    article_label: Optional[str] = None
+
+
+class ChatResponse(BaseModel):
+    answer: str
+    suggested_checks: List[str] = Field(default_factory=list)
+    model: str
+    grounded_in_scope: bool = True
