@@ -58,6 +58,13 @@ const resultStyles = {
   },
 };
 
+const assistantGuardrails = [
+  "Summarize a claim",
+  "Explain a score",
+  "Rephrase a claim",
+  "Suggest verification steps",
+];
+
 function formatPercent(score) {
   return `${score}%`;
 }
@@ -168,6 +175,8 @@ function buildEmptyAssistantReply() {
       "Ask what to verify first.",
       "Ask which sources should confirm the story.",
     ],
+    grounded_in_scope: true,
+    model: "gemini-1.5-flash",
   };
 }
 
@@ -270,6 +279,8 @@ export function DashboardPage() {
   const [chartReady, setChartReady] = useState(false);
   const [assistantInput, setAssistantInput] = useState("");
   const [assistantReply, setAssistantReply] = useState(buildEmptyAssistantReply());
+  const [assistantLoading, setAssistantLoading] = useState(false);
+  const [assistantError, setAssistantError] = useState("");
 
   const [articles, setArticles] = useState([]);
   const [articleCategories, setArticleCategories] = useState(["All"]);
@@ -511,6 +522,7 @@ export function DashboardPage() {
     const message = assistantInput.trim();
 
     if (!message) {
+      setAssistantError("");
       setAssistantReply(buildEmptyAssistantReply());
       return;
     }
@@ -518,6 +530,9 @@ export function DashboardPage() {
     const contextArticle = visibleArticles[0];
 
     try {
+      setAssistantLoading(true);
+      setAssistantError("");
+
       const result = await chatWithAssistant({
         message,
         article_title: contextArticle?.title,
@@ -527,15 +542,22 @@ export function DashboardPage() {
       });
 
       setAssistantReply(result);
+      pushNotification("Assistant ready", "The assistant returned a guided response.", "info");
     } catch (error) {
       console.error("Assistant request failed:", error);
+      setAssistantError("The assistant could not answer right now.");
       setAssistantReply({
         answer: "The assistant is temporarily unavailable.",
         suggested_checks: [
           "Retry the request in a moment.",
           "Use the Fact-Check Corner while the assistant is unavailable.",
         ],
+        grounded_in_scope: true,
+        model: "unavailable",
       });
+      pushNotification("Assistant unavailable", "The assistant request failed.", "danger");
+    } finally {
+      setAssistantLoading(false);
     }
   }
 
@@ -1024,13 +1046,30 @@ export function DashboardPage() {
             onChange={(event) => setAssistantInput(event.target.value)}
           />
 
+          <p className="hero-card__note">
+            Scope: summaries, score explanations, claim reformulation, and next verification steps.
+          </p>
+
+          {visibleArticles[0] ? (
+            <p className="hero-card__note">
+              Context article: {visibleArticles[0].title}
+            </p>
+          ) : null}
+
           <button
             type="button"
             className="primary-button"
             onClick={handleAssistantAsk}
+            disabled={assistantLoading}
           >
-            Ask Assistant
+            {assistantLoading ? "Asking..." : "Ask Assistant"}
           </button>
+
+          {assistantError ? (
+            <p className="hero-card__note" style={{ color: "var(--danger)" }}>
+              {assistantError}
+            </p>
+          ) : null}
 
           <div
             className="analysis-preview"
@@ -1041,16 +1080,35 @@ export function DashboardPage() {
                 <p className="analysis-preview__eyebrow">TruthLens Assistant</p>
                 <strong>Guided fact-check support</strong>
               </div>
-              <span className="status-chip status-chip-warning">Scoped</span>
+              <span
+                className={clsx(
+                  "status-chip",
+                  assistantReply.grounded_in_scope
+                    ? "status-chip-warning"
+                    : "status-chip-danger",
+                )}
+              >
+                {assistantReply.grounded_in_scope ? "Scoped" : "Out of scope"}
+              </span>
             </div>
 
             <p>{assistantReply.answer}</p>
+
+            <p className="hero-card__note">Model: {assistantReply.model}</p>
 
             <ul className="signal-list">
               {assistantReply.suggested_checks.map((item) => (
                 <li key={item}>{item}</li>
               ))}
             </ul>
+          </div>
+
+          <div className="tips-row">
+            {assistantGuardrails.map((item) => (
+              <span key={item} className="hint-pill">
+                {item}
+              </span>
+            ))}
           </div>
         </section>
 
