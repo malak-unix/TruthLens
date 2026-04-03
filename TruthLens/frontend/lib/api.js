@@ -49,6 +49,24 @@ export async function analyzeContent(payload) {
   return data;
 }
 
+export async function chatWithAssistant(payload) {
+  const response = await fetch(`${API_URL}/chat`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.detail || "Failed to chat with assistant");
+  }
+
+  return data;
+}
+
 export async function registerUser(payload) {
   const response = await fetch(`${API_URL}/auth/register`, {
     method: "POST",
