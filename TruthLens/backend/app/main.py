@@ -6,6 +6,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.schemas import (
     AnalyzeRequest,
+    ChatRequest,
+    ChatResponse,
     NewsItem,
     UserRegister,
     UserLogin,
@@ -13,6 +15,7 @@ from app.schemas import (
     TokenResponse,
 )
 from app.analyzer import analyze_text_content
+from app.chat_service import ChatService
 from app.database import (
     init_db,
     seed_news_if_empty,
@@ -181,6 +184,12 @@ def analyze_content(payload: AnalyzeRequest):
     save_user_check(input_type=input_type, input_value=content, result=result)
 
     return result
+
+
+@app.post("/chat", response_model=ChatResponse)
+def chat_with_assistant(payload: ChatRequest):
+    service = ChatService()
+    return service.chat(payload)
 
 
 @app.get("/debug/news-count")

@@ -57,6 +57,10 @@ class ChatService:
     def is_configured(self) -> bool:
         return self.settings.gemini_enabled
 
+    def chat(self, payload: ChatRequest) -> ChatResponse:
+        # Until Gemini is wired in, keep the endpoint stable with a scoped fallback.
+        return self.build_placeholder_response(payload)
+
     def build_placeholder_response(self, payload: ChatRequest) -> ChatResponse:
         trimmed_message = payload.message.strip()
 
