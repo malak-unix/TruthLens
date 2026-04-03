@@ -15,6 +15,7 @@ TruthLens is a web app for monitoring viral news, assigning an explainable credi
 - Dashboard with Morocco / World filtering
 - Category filtering and search
 - Fact-Check Corner connected to `POST /analyze`
+- Assistant panel connected to `POST /chat`
 - SQLite-backed news feed
 - User signup, login, and current-user session lookup
 - Internal scheduler for morning / midday / evening news refresh
@@ -100,7 +101,8 @@ Frontend URL:
 3. Open `http://localhost:3000`.
 4. Test the dashboard news loading.
 5. Test the Fact-Check Corner.
-6. Test signup, login, and profile reload.
+6. Test the Assistant panel.
+7. Test signup, login, and profile reload.
 
 ## Main Backend Routes
 
@@ -108,6 +110,7 @@ Frontend URL:
 - `GET /news`
 - `GET /categories`
 - `POST /analyze`
+- `POST /chat`
 - `POST /auth/register`
 - `POST /auth/login`
 - `GET /auth/me`
@@ -136,4 +139,5 @@ Then confirm in the browser:
 - dashboard loads articles
 - region/category filters react correctly
 - analysis returns score, label, and explanation
+- assistant returns a scoped response with suggested checks
 - signup/login flow works
