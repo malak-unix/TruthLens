@@ -269,6 +269,101 @@ function SummaryCard({ eyebrow, title, description, value, index }) {
   );
 }
 
+function AssistantPanel({
+  assistantInput,
+  setAssistantInput,
+  assistantLoading,
+  assistantError,
+  assistantReply,
+  handleAssistantAsk,
+  contextArticle,
+  className,
+}) {
+  return (
+    <section className={clsx("side-card", "assistant-card", className)}>
+      <div className="side-card__header">
+        <div className="section-title">
+          <Sparkles size={20} />
+          <h3>Assistant</h3>
+        </div>
+      </div>
+
+      <textarea
+        className="fact-check-input"
+        rows={6}
+        placeholder="Ask for a summary, an explanation of the score, or next verification steps..."
+        value={assistantInput}
+        onChange={(event) => setAssistantInput(event.target.value)}
+      />
+
+      <p className="hero-card__note">
+        Scope: summaries, score explanations, claim reformulation, and next verification steps.
+      </p>
+
+      {contextArticle ? (
+        <p className="hero-card__note">
+          Context article: {contextArticle.title}
+        </p>
+      ) : null}
+
+      <button
+        type="button"
+        className="primary-button"
+        onClick={handleAssistantAsk}
+        disabled={assistantLoading}
+      >
+        {assistantLoading ? "Asking..." : "Ask Assistant"}
+      </button>
+
+      {assistantError ? (
+        <p className="hero-card__note" style={{ color: "var(--danger)" }}>
+          {assistantError}
+        </p>
+      ) : null}
+
+      <div
+        className="analysis-preview"
+        style={{ "--analysis-accent": "var(--warning-strong)" }}
+      >
+        <div className="analysis-preview__header">
+          <div>
+            <p className="analysis-preview__eyebrow">TruthLens Assistant</p>
+            <strong>Guided fact-check support</strong>
+          </div>
+          <span
+            className={clsx(
+              "status-chip",
+              assistantReply.grounded_in_scope
+                ? "status-chip-warning"
+                : "status-chip-danger",
+            )}
+          >
+            {assistantReply.grounded_in_scope ? "Scoped" : "Out of scope"}
+          </span>
+        </div>
+
+        <p>{assistantReply.answer}</p>
+
+        <p className="hero-card__note">Model: {assistantReply.model}</p>
+
+        <ul className="signal-list">
+          {assistantReply.suggested_checks.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      </div>
+
+      <div className="tips-row">
+        {assistantGuardrails.map((item) => (
+          <span key={item} className="hint-pill">
+            {item}
+          </span>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export function DashboardPage() {
   const [activeNav, setActiveNav] = useState("dashboard");
   const [activeRegion, setActiveRegion] = useState("morocco");
@@ -591,7 +686,7 @@ export function DashboardPage() {
 
   return (
     <main className="dashboard-shell">
-      <aside className="sidebar">
+      <aside className="assistant-sidebar">
         <div className="brand-mark">
           <div className="brand-mark__logo">T</div>
           <div>
@@ -600,28 +695,19 @@ export function DashboardPage() {
           </div>
         </div>
 
-        <nav className="sidebar-nav" aria-label="Sidebar navigation">
-          {navigationItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeNav === item.id;
-
-            return (
-              <button
-                key={item.id}
-                type="button"
-                className={clsx("sidebar-nav__item", isActive && "is-active")}
-                onClick={() => setActiveNav(item.id)}
-              >
-                <Icon size={20} />
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
-        </nav>
+        <AssistantPanel
+          assistantInput={assistantInput}
+          setAssistantInput={setAssistantInput}
+          assistantLoading={assistantLoading}
+          assistantError={assistantError}
+          assistantReply={assistantReply}
+          handleAssistantAsk={handleAssistantAsk}
+          contextArticle={visibleArticles[0]}
+        />
 
         <div className="sidebar-footer">
           <p>TruthLens v1.0</p>
-          <span>{currentUser ? "User connected" : "Frontend connected"}</span>
+          <span>{currentUser ? "User connected" : "Gemini-ready assistant"}</span>
         </div>
       </aside>
 
@@ -656,6 +742,25 @@ export function DashboardPage() {
             </button>
           </div>
         </header>
+
+        <nav className="top-nav" aria-label="Top navigation">
+          {navigationItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeNav === item.id;
+
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className={clsx("top-nav__item", isActive && "is-active")}
+                onClick={() => setActiveNav(item.id)}
+              >
+                <Icon size={18} />
+                <span>{item.label}</span>
+              </button>
+            );
+          })}
+        </nav>
 
         {activeNav === "dashboard" && (
           <>
@@ -1025,88 +1130,6 @@ export function DashboardPage() {
             {factCheckTips.map((tip) => (
               <span key={tip} className="hint-pill">
                 {tip}
-              </span>
-            ))}
-          </div>
-        </section>
-
-        <section className="side-card">
-          <div className="side-card__header">
-            <div className="section-title">
-              <Sparkles size={20} />
-              <h3>Assistant</h3>
-            </div>
-          </div>
-
-          <textarea
-            className="fact-check-input"
-            rows={4}
-            placeholder="Ask for a summary, an explanation of the score, or next verification steps..."
-            value={assistantInput}
-            onChange={(event) => setAssistantInput(event.target.value)}
-          />
-
-          <p className="hero-card__note">
-            Scope: summaries, score explanations, claim reformulation, and next verification steps.
-          </p>
-
-          {visibleArticles[0] ? (
-            <p className="hero-card__note">
-              Context article: {visibleArticles[0].title}
-            </p>
-          ) : null}
-
-          <button
-            type="button"
-            className="primary-button"
-            onClick={handleAssistantAsk}
-            disabled={assistantLoading}
-          >
-            {assistantLoading ? "Asking..." : "Ask Assistant"}
-          </button>
-
-          {assistantError ? (
-            <p className="hero-card__note" style={{ color: "var(--danger)" }}>
-              {assistantError}
-            </p>
-          ) : null}
-
-          <div
-            className="analysis-preview"
-            style={{ "--analysis-accent": "var(--warning-strong)" }}
-          >
-            <div className="analysis-preview__header">
-              <div>
-                <p className="analysis-preview__eyebrow">TruthLens Assistant</p>
-                <strong>Guided fact-check support</strong>
-              </div>
-              <span
-                className={clsx(
-                  "status-chip",
-                  assistantReply.grounded_in_scope
-                    ? "status-chip-warning"
-                    : "status-chip-danger",
-                )}
-              >
-                {assistantReply.grounded_in_scope ? "Scoped" : "Out of scope"}
-              </span>
-            </div>
-
-            <p>{assistantReply.answer}</p>
-
-            <p className="hero-card__note">Model: {assistantReply.model}</p>
-
-            <ul className="signal-list">
-              {assistantReply.suggested_checks.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          </div>
-
-          <div className="tips-row">
-            {assistantGuardrails.map((item) => (
-              <span key={item} className="hint-pill">
-                {item}
               </span>
             ))}
           </div>

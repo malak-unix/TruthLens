@@ -189,7 +189,13 @@ def analyze_content(payload: AnalyzeRequest):
 @app.post("/chat", response_model=ChatResponse)
 def chat_with_assistant(payload: ChatRequest):
     service = ChatService()
-    return service.chat(payload)
+    try:
+        return service.chat(payload)
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
+        ) from exc
 
 
 @app.get("/debug/news-count")

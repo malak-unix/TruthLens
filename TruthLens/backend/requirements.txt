@@ -6,3 +6,4 @@ passlib==1.7.4
 python-jose==3.5.0
 apscheduler==3.11.2
 python-dotenv==1.2.2
+requests==2.33.1
