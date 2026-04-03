@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useEffect, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import {
   Activity,
@@ -20,14 +20,22 @@ import {
   Tooltip,
   XAxis,
 } from "recharts";
+
 import {
   activitySeries,
-  articleCategories,
-  articles,
   factCheckTips,
   navigationItems,
   topicStats,
 } from "../lib/mock-data";
+
+import {
+  fetchNews,
+  fetchCategories,
+  analyzeContent,
+  registerUser,
+  loginUser,
+  fetchCurrentUser,
+} from "../lib/api";
 
 const regionLabels = {
   morocco: "Morocco",
@@ -49,82 +57,119 @@ const resultStyles = {
   },
 };
 
-function buildMockAnalysis(input, mode) {
-  const query = input.trim().toLowerCase();
+function formatPercent(score) {
+  return `${score}%`;
+}
 
-  if (!query) {
-    return {
-      title: "Pret pour l'analyse",
-      score: 0,
-      label: "Aucune entree",
-      tone: "watch",
-      explanation:
-        "Collez une URL ou un texte. Cette zone est deja preparee pour etre branchee sur l'endpoint FastAPI /analyze.",
-      evidence: ["Champ vide", "Attente d'une saisie utilisateur"],
-    };
-  }
+function getApiCountry(region) {
+  return region === "morocco" ? "ma" : "world";
+}
 
-  if (mode === "url") {
-    if (/(gov|who\\.int|un\\.org|guardian|lematin|mapnews)/.test(query)) {
-      return {
-        title: "Source solide detectee",
-        score: 88,
-        label: "Likely Reliable",
-        tone: "reliable",
-        explanation:
-          "Le lien semble pointer vers un domaine institutionnel ou editorial etabli. La suite cote backend confirmera la corroboration et les metadonnees.",
-        evidence: ["Domaine reconnu", "Schema URL propre", "A verifier avec corroboration"],
-      };
-    }
+function getScoreColor(score) {
+  if (score >= 80) return "var(--success-strong)";
+  if (score >= 50) return "var(--warning-strong)";
+  return "var(--danger)";
+}
 
-    if (/(telegram|rumor|blogspot|viral|breaking-news)/.test(query)) {
-      return {
-        title: "URL a surveiller",
-        score: 41,
-        label: "Needs Review",
-        tone: "risk",
-        explanation:
-          "Le lien contient des indices frequents de source secondaire ou peu claire. Le moteur backend devra verifier la reputation de la source et les preuves externes.",
-        evidence: ["Source peu claire", "Risque de relais viral", "Corroboration necessaire"],
-      };
-    }
+function getBadgeClass(label) {
+  if (label === "Reliable") return "status-chip-success";
+  if (label === "Needs Context" || label === "Unverified") return "status-chip-warning";
+  return "status-chip-danger";
+}
 
-    return {
-      title: "Signal precoce",
-      score: 67,
-      label: "Early Signal",
-      tone: "watch",
-      explanation:
-        "Le lien est exploitable mais il faut encore enrichir la source, le contenu et la corroboration. L'UX est deja en place pour recevoir la reponse du backend.",
-      evidence: ["URL valide", "Score intermediaire", "Enrichissement backend a venir"],
-    };
-  }
+function getToneFromLabel(label) {
+  if (label === "Reliable") return "reliable";
+  if (label === "Needs Context" || label === "Unverified") return "watch";
+  return "risk";
+}
 
-  if (/(urgent|partagez|share|secret|miracle|complot|scandale)/.test(query)) {
-    return {
-      title: "Texte suspect",
-      score: 26,
-      label: "High Risk",
-      tone: "risk",
-      explanation:
-        "Le texte contient des marqueurs de sensationnalisme et d'incitation au partage. C'est le type de signal que le moteur de credibilite doit penaliser.",
-      evidence: ["Vocabulaire alarmiste", "Attribution absente", "Verification prioritaire"],
-    };
-  }
+function getAnalysisTitle(label) {
+  if (label === "Reliable") return "Source solide detectee";
+  if (label === "Needs Context") return "Contexte supplementaire requis";
+  if (label === "Unverified") return "Signal precoce";
+  if (label === "Suspicious") return "Contenu suspect";
+  if (label === "High Risk") return "Risque eleve";
+  if (label === "No Input") return "Pret pour l'analyse";
+  return "Analyse terminee";
+}
 
+function formatTimeAgo(publishedAt) {
+  const published = new Date(publishedAt);
+  const now = new Date();
+  const diffMs = now - published;
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+  const diffMinutes = Math.floor(diffMs / (1000 * 60));
+
+  if (diffHours > 0) return `${diffHours} hour${diffHours > 1 ? "s" : ""} ago`;
+  if (diffMinutes > 0) return `${diffMinutes} min ago`;
+  return "Just now";
+}
+
+function getCategoryImage(category) {
+  const images = {
+    Economy:
+      "https://images.unsplash.com/photo-1520607162513-77705c0f0d4a?auto=format&fit=crop&w=900&q=80",
+    Health:
+      "https://images.unsplash.com/photo-1576091160399-112ba8d25d1f?auto=format&fit=crop&w=900&q=80",
+    Technology:
+      "https://images.unsplash.com/photo-1518770660439-4636190af475?auto=format&fit=crop&w=900&q=80",
+    Society:
+      "https://images.unsplash.com/photo-1517048676732-d65bc937f952?auto=format&fit=crop&w=900&q=80",
+    Sports:
+      "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=900&q=80",
+    Politics:
+      "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=900&q=80",
+  };
+
+  return (
+    images[category] ||
+    "https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&w=900&q=80"
+  );
+}
+
+function mapBackendArticle(article) {
   return {
-    title: "Contenu exploitable",
-    score: 73,
-    label: "Needs Context",
-    tone: "watch",
-    explanation:
-      "Le texte a une structure informative mais manque encore de contexte et de sources confirmees. La future integration FastAPI ajoutera la corroboration automatique.",
-    evidence: ["Texte structure", "Sources non confirmees", "Analyse detaillee a connecter"],
+    id: article.url,
+    title: article.title,
+    category: article.category,
+    source: article.source_name,
+    timeAgo: formatTimeAgo(article.published_at),
+    summary: article.description,
+    score: article.credibility_score,
+    badge: article.credibility_label,
+    badgeClass: getBadgeClass(article.credibility_label),
+    scoreColor: getScoreColor(article.credibility_score),
+    image: getCategoryImage(article.category),
+    url: article.url,
+    region: article.country === "ma" ? "morocco" : "world",
+    explanation: article.explanation,
   };
 }
 
-function formatPercent(score) {
-  return `${score}%`;
+function buildEmptyAnalysis() {
+  return {
+    title: "Pret pour l'analyse",
+    score: 0,
+    label: "Aucune entree",
+    tone: "watch",
+    explanation:
+      "Collez une URL ou un texte. Cette zone est maintenant connectee au backend FastAPI /analyze.",
+    evidence: ["Champ vide", "Attente d'une saisie utilisateur"],
+  };
+}
+
+function mapAnalysisResult(result) {
+  return {
+    title: getAnalysisTitle(result.credibility_label),
+    score: result.credibility_score,
+    label: result.credibility_label,
+    tone: getToneFromLabel(result.credibility_label),
+    explanation: result.explanation,
+    evidence:
+      result.risk_signals && result.risk_signals.length > 0
+        ? result.risk_signals
+        : ["No major risk signal detected"],
+  };
 }
 
 function ArticleCard({ article, index }) {
@@ -141,9 +186,16 @@ function ArticleCard({ article, index }) {
             <p className="article-card__eyebrow">{article.category}</p>
             <h3>{article.title}</h3>
           </div>
-          <button className="ghost-icon-button" aria-label="Open article preview">
+
+          <a
+            className="ghost-icon-button"
+            aria-label="Open article preview"
+            href={article.url}
+            target="_blank"
+            rel="noreferrer"
+          >
             <ExternalLink size={18} />
-          </button>
+          </a>
         </div>
 
         <div className="article-card__meta">
@@ -171,6 +223,30 @@ function ArticleCard({ article, index }) {
   );
 }
 
+function SummaryCard({ eyebrow, title, description, value, index }) {
+  return (
+    <article className="article-card" style={{ animationDelay: `${index * 90}ms` }}>
+      <div className="article-card__content">
+        <div className="article-card__header">
+          <div>
+            <p className="article-card__eyebrow">{eyebrow}</p>
+            <h3>{title}</h3>
+          </div>
+        </div>
+
+        <p className="article-card__summary">{description}</p>
+
+        <div className="article-card__footer">
+          <div className="credibility-block">
+            <span>Value:</span>
+            <strong>{value}</strong>
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
 export function DashboardPage() {
   const [activeNav, setActiveNav] = useState("dashboard");
   const [activeRegion, setActiveRegion] = useState("morocco");
@@ -179,17 +255,248 @@ export function DashboardPage() {
   const [factCheckMode, setFactCheckMode] = useState("url");
   const [factInput, setFactInput] = useState("");
   const [chartReady, setChartReady] = useState(false);
+
+  const [articles, setArticles] = useState([]);
+  const [articleCategories, setArticleCategories] = useState(["All"]);
+  const [newsLoading, setNewsLoading] = useState(true);
+  const [newsError, setNewsError] = useState("");
+
+  const [analysisResult, setAnalysisResult] = useState(buildEmptyAnalysis());
+  const [analyzing, setAnalyzing] = useState(false);
+
+  const [notifications, setNotifications] = useState([]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [showProfilePanel, setShowProfilePanel] = useState(false);
+
+  const [authMode, setAuthMode] = useState("login");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authFullName, setAuthFullName] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState("");
+
+  const [authToken, setAuthToken] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null);
+
   const deferredSearch = useDeferredValue(searchTerm);
-  const analysisResult = buildMockAnalysis(factInput, factCheckMode);
+
+  function pushNotification(title, message, type = "info") {
+    const item = {
+      id: Date.now() + Math.random(),
+      title,
+      message,
+      type,
+      read: false,
+      createdAt: new Date().toLocaleTimeString(),
+    };
+
+    setNotifications((prev) => [item, ...prev].slice(0, 12));
+  }
+
+  const unreadCount = notifications.filter((item) => !item.read).length;
+
+  function closeOverlays() {
+    setShowNotifications(false);
+    setShowProfilePanel(false);
+  }
+
+  function openNotifications() {
+    setShowNotifications((prev) => !prev);
+    setShowProfilePanel(false);
+    setNotifications((prev) => prev.map((item) => ({ ...item, read: true })));
+  }
+
+  function openProfilePanel() {
+    setShowProfilePanel((prev) => !prev);
+    setShowNotifications(false);
+  }
+
+  function logoutUser() {
+    localStorage.removeItem("truthlens_token");
+    setAuthToken(null);
+    setCurrentUser(null);
+    setShowProfilePanel(false);
+    pushNotification("Logged out", "Your session has been closed.", "info");
+  }
+
+  async function handleRegister() {
+    try {
+      setAuthLoading(true);
+      setAuthError("");
+
+      const data = await registerUser({
+        email: authEmail,
+        password: authPassword,
+        full_name: authFullName || null,
+      });
+
+      localStorage.setItem("truthlens_token", data.access_token);
+      setAuthToken(data.access_token);
+      setCurrentUser(data.user);
+      setShowProfilePanel(false);
+
+      pushNotification(
+        "Account created",
+        `Welcome ${data.user.full_name || data.user.email}`,
+        "success"
+      );
+
+      setAuthEmail("");
+      setAuthPassword("");
+      setAuthFullName("");
+    } catch (error) {
+      setAuthError(error.message);
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  async function handleLogin() {
+    try {
+      setAuthLoading(true);
+      setAuthError("");
+
+      const data = await loginUser({
+        email: authEmail,
+        password: authPassword,
+      });
+
+      localStorage.setItem("truthlens_token", data.access_token);
+      setAuthToken(data.access_token);
+      setCurrentUser(data.user);
+      setShowProfilePanel(false);
+
+      pushNotification(
+        "Login successful",
+        `Connected as ${data.user.full_name || data.user.email}`,
+        "success"
+      );
+
+      setAuthEmail("");
+      setAuthPassword("");
+      setAuthFullName("");
+    } catch (error) {
+      setAuthError(error.message);
+    } finally {
+      setAuthLoading(false);
+    }
+  }
 
   useEffect(() => {
     setChartReady(true);
+    const savedToken = localStorage.getItem("truthlens_token");
+    if (savedToken) {
+      setAuthToken(savedToken);
+    }
   }, []);
+
+  useEffect(() => {
+    async function loadCurrentUser() {
+      if (!authToken) return;
+
+      try {
+        const user = await fetchCurrentUser(authToken);
+        setCurrentUser(user);
+      } catch (error) {
+        console.error("Failed to fetch current user:", error);
+        localStorage.removeItem("truthlens_token");
+        setAuthToken(null);
+        setCurrentUser(null);
+      }
+    }
+
+    loadCurrentUser();
+  }, [authToken]);
+
+  useEffect(() => {
+    async function loadCategories() {
+      try {
+        const data = await fetchCategories();
+        setArticleCategories(["All", ...data]);
+      } catch (error) {
+        console.error("Failed to load categories:", error);
+      }
+    }
+
+    loadCategories();
+  }, []);
+
+  useEffect(() => {
+    async function loadNews() {
+      try {
+        setNewsLoading(true);
+        setNewsError("");
+
+        const apiCountry = getApiCountry(activeRegion);
+        const data = await fetchNews(
+          apiCountry,
+          activeCategory === "All" ? "" : activeCategory
+        );
+
+        const mapped = data.map(mapBackendArticle);
+        setArticles(mapped);
+
+        pushNotification(
+          "News updated",
+          `${mapped.length} article(s) loaded for ${regionLabels[activeRegion]}.`,
+          "info"
+        );
+      } catch (error) {
+        console.error("Failed to load news:", error);
+        setNewsError("Impossible de charger les actualites.");
+      } finally {
+        setNewsLoading(false);
+      }
+    }
+
+    loadNews();
+  }, [activeRegion, activeCategory]);
+
+  async function handleAnalyze() {
+    if (!factInput.trim()) {
+      setAnalysisResult(buildEmptyAnalysis());
+      return;
+    }
+
+    try {
+      setAnalyzing(true);
+
+      const payload =
+        factCheckMode === "url"
+          ? { url: factInput.trim() }
+          : { text: factInput.trim() };
+
+      const result = await analyzeContent(payload);
+      const mapped = mapAnalysisResult(result);
+      setAnalysisResult(mapped);
+
+      pushNotification(
+        "Analysis completed",
+        `${mapped.label} - ${mapped.score}%`,
+        mapped.label === "High Risk" || mapped.label === "Suspicious" ? "danger" : "success"
+      );
+    } catch (error) {
+      console.error("Analyze failed:", error);
+      setAnalysisResult({
+        title: "Erreur d'analyse",
+        score: 0,
+        label: "Error",
+        tone: "risk",
+        explanation: "Le backend n'a pas pu analyser cette entree.",
+        evidence: ["Erreur backend ou reponse invalide"],
+      });
+
+      pushNotification("Analysis failed", "The backend could not process this request.", "danger");
+    } finally {
+      setAnalyzing(false);
+    }
+  }
 
   const visibleArticles = articles.filter((article) => {
     const matchesRegion = article.region === activeRegion;
     const matchesCategory =
       activeCategory === "All" || article.category === activeCategory;
+
     const normalizedSearch = deferredSearch.trim().toLowerCase();
     const matchesSearch =
       normalizedSearch.length === 0 ||
@@ -200,9 +507,18 @@ export function DashboardPage() {
     return matchesRegion && matchesCategory && matchesSearch;
   });
 
+  const categorySummary = useMemo(() => {
+    return articleCategories
+      .filter((cat) => cat !== "All")
+      .map((cat) => ({
+        label: cat,
+        value: articles.filter((article) => article.category === cat).length,
+      }));
+  }, [articleCategories, articles]);
+
   const activeTopics = topicStats[activeRegion];
   const activity = activitySeries[activeRegion];
-  const resultStyle = resultStyles[analysisResult.tone];
+  const resultStyle = resultStyles[analysisResult.tone] || resultStyles.watch;
 
   return (
     <main className="dashboard-shell">
@@ -236,7 +552,7 @@ export function DashboardPage() {
 
         <div className="sidebar-footer">
           <p>TruthLens v1.0</p>
-          <span>Frontend MVP</span>
+          <span>{currentUser ? "User connected" : "Frontend connected"}</span>
         </div>
       </aside>
 
@@ -253,99 +569,311 @@ export function DashboardPage() {
           </label>
 
           <div className="topbar-actions">
-            <button className="ghost-icon-button" aria-label="Notifications">
+            <button
+              className="ghost-icon-button"
+              aria-label="Notifications"
+              onClick={openNotifications}
+            >
               <Bell size={20} />
-              <span className="topbar-dot" />
+              {unreadCount > 0 && <span className="topbar-dot" />}
             </button>
-            <button className="ghost-icon-button" aria-label="Profile">
+
+            <button
+              className="ghost-icon-button"
+              aria-label="Profile"
+              onClick={openProfilePanel}
+            >
               <UserRound size={20} />
             </button>
           </div>
         </header>
 
-        <section className="hero-card">
-          <div>
-            <p className="hero-card__kicker">Real-time credibility analysis</p>
-            <h2>Viral News Monitor</h2>
-            <p className="hero-card__subtitle">
-              Suivi live des actualites Maroc et Monde avec badge de credibilite,
-              categories et coin de verification.
-            </p>
-          </div>
-
-          <div className="hero-card__status">
-            <span className="status-chip status-chip-soft">
-              <Sparkles size={14} />
-              Refresh 06:00 / 12:00 / 18:00
-            </span>
-            <span className="hero-card__note">
-              Base Next.js prete pour le branchement FastAPI
-            </span>
-          </div>
-        </section>
-
-        <div className="content-toolbar">
-          <div className="toggle-pill">
-            {Object.entries(regionLabels).map(([key, label]) => (
-              <button
-                key={key}
-                type="button"
-                className={clsx(
-                  "toggle-pill__button",
-                  activeRegion === key && "is-active",
-                )}
-                onClick={() => setActiveRegion(key)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="category-row" role="tablist" aria-label="News categories">
-          {articleCategories.map((category) => (
-            <button
-              key={category}
-              type="button"
-              className={clsx(
-                "category-pill",
-                activeCategory === category && "is-active",
-              )}
-              onClick={() => setActiveCategory(category)}
-            >
-              {category}
-            </button>
-          ))}
-        </div>
-
-        <div className="results-caption">
-          <span>
-            {visibleArticles.length} story{visibleArticles.length > 1 ? "ies" : "y"} for{" "}
-            {regionLabels[activeRegion]}
-          </span>
-          <span>
-            Focus: {activeCategory === "All" ? "All categories" : activeCategory}
-          </span>
-        </div>
-
-        <div className="news-list">
-          {visibleArticles.length > 0 ? (
-            visibleArticles.map((article, index) => (
-              <ArticleCard key={article.id} article={article} index={index} />
-            ))
-          ) : (
-            <div className="empty-state">
-              <CheckCircle2 size={28} />
+        {activeNav === "dashboard" && (
+          <>
+            <section className="hero-card">
               <div>
-                <h3>No results for this filter set</h3>
-                <p>
-                  Essayez une autre recherche ou revenez a la vue All pour
-                  poursuivre l'exploration.
+                <p className="hero-card__kicker">Real-time credibility analysis</p>
+                <h2>Viral News Monitor</h2>
+                <p className="hero-card__subtitle">
+                  Suivi live des actualites Maroc et Monde avec badge de credibilite,
+                  categories et coin de verification.
                 </p>
               </div>
+
+              <div className="hero-card__status">
+                <span className="status-chip status-chip-soft">
+                  <Sparkles size={14} />
+                  Backend live data
+                </span>
+                <span className="hero-card__note">
+                  Backend FastAPI + SQLite + JWT connecte
+                </span>
+              </div>
+            </section>
+
+            <div className="content-toolbar">
+              <div className="toggle-pill">
+                {Object.entries(regionLabels).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={clsx(
+                      "toggle-pill__button",
+                      activeRegion === key && "is-active"
+                    )}
+                    onClick={() => setActiveRegion(key)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
-          )}
-        </div>
+
+            <div className="category-row" role="tablist" aria-label="News categories">
+              {articleCategories.map((category) => (
+                <button
+                  key={category}
+                  type="button"
+                  className={clsx(
+                    "category-pill",
+                    activeCategory === category && "is-active"
+                  )}
+                  onClick={() => setActiveCategory(category)}
+                >
+                  {category}
+                </button>
+              ))}
+            </div>
+
+            <div className="results-caption">
+              <span>
+                {visibleArticles.length} story{visibleArticles.length > 1 ? "ies" : "y"} for{" "}
+                {regionLabels[activeRegion]}
+              </span>
+              <span>
+                Focus: {activeCategory === "All" ? "All categories" : activeCategory}
+              </span>
+            </div>
+
+            <div className="news-list">
+              {newsLoading ? (
+                <div className="empty-state">
+                  <CheckCircle2 size={28} />
+                  <div>
+                    <h3>Loading news...</h3>
+                    <p>Le tableau de bord charge les actualites depuis le backend.</p>
+                  </div>
+                </div>
+              ) : newsError ? (
+                <div className="empty-state">
+                  <CheckCircle2 size={28} />
+                  <div>
+                    <h3>Erreur de chargement</h3>
+                    <p>{newsError}</p>
+                  </div>
+                </div>
+              ) : visibleArticles.length > 0 ? (
+                visibleArticles.map((article, index) => (
+                  <ArticleCard key={article.id} article={article} index={index} />
+                ))
+              ) : (
+                <div className="empty-state">
+                  <CheckCircle2 size={28} />
+                  <div>
+                    <h3>No results for this filter set</h3>
+                    <p>
+                      Essayez une autre recherche ou revenez a la vue All pour
+                      poursuivre l'exploration.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {activeNav === "trending" && (
+          <>
+            <section className="hero-card">
+              <div>
+                <p className="hero-card__kicker">Trending overview</p>
+                <h2>Trending Topics</h2>
+                <p className="hero-card__subtitle">
+                  Vue rapide des sujets les plus suivis pour {regionLabels[activeRegion]}.
+                </p>
+              </div>
+
+              <div className="hero-card__status">
+                <span className="status-chip status-chip-soft">
+                  <Sparkles size={14} />
+                  Live topic snapshot
+                </span>
+              </div>
+            </section>
+
+            <div className="content-toolbar">
+              <div className="toggle-pill">
+                {Object.entries(regionLabels).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={clsx(
+                      "toggle-pill__button",
+                      activeRegion === key && "is-active"
+                    )}
+                    onClick={() => setActiveRegion(key)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="news-list">
+              {activeTopics.map((topic, index) => (
+                <SummaryCard
+                  key={topic.label}
+                  eyebrow="Trending"
+                  title={topic.label}
+                  description="Ce sujet est actuellement parmi les plus suivis dans la region selectionnee."
+                  value={topic.value}
+                  index={index}
+                />
+              ))}
+            </div>
+          </>
+        )}
+
+        {activeNav === "categories" && (
+          <>
+            <section className="hero-card">
+              <div>
+                <p className="hero-card__kicker">Category overview</p>
+                <h2>Categories</h2>
+                <p className="hero-card__subtitle">
+                  Repartition des actualites chargees depuis le backend par categorie.
+                </p>
+              </div>
+
+              <div className="hero-card__status">
+                <span className="status-chip status-chip-soft">
+                  <Sparkles size={14} />
+                  Backend category snapshot
+                </span>
+              </div>
+            </section>
+
+            <div className="content-toolbar">
+              <div className="toggle-pill">
+                {Object.entries(regionLabels).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={clsx(
+                      "toggle-pill__button",
+                      activeRegion === key && "is-active"
+                    )}
+                    onClick={() => setActiveRegion(key)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="news-list">
+              {categorySummary.map((item, index) => (
+                <SummaryCard
+                  key={item.label}
+                  eyebrow="Category"
+                  title={item.label}
+                  description="Nombre d'articles actuellement disponibles dans cette categorie."
+                  value={item.value}
+                  index={index}
+                />
+              ))}
+            </div>
+          </>
+        )}
+
+        {activeNav === "statistics" && (
+          <>
+            <section className="hero-card">
+              <div>
+                <p className="hero-card__kicker">System metrics</p>
+                <h2>Statistics</h2>
+                <p className="hero-card__subtitle">
+                  Activite du systeme, volume de verification et suivi des contenus.
+                </p>
+              </div>
+
+              <div className="hero-card__status">
+                <span className="status-chip status-chip-soft">
+                  <Sparkles size={14} />
+                  SQLite metrics
+                </span>
+              </div>
+            </section>
+
+            <section className="side-card activity-card" style={{ marginTop: "1rem" }}>
+              <div className="side-card__header">
+                <div className="section-title">
+                  <Activity size={20} />
+                  <h3>Today&apos;s Activity</h3>
+                </div>
+              </div>
+
+              <div className="activity-chart">
+                {chartReady ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={activity}>
+                      <defs>
+                        <linearGradient id="activityGradientStats" x1="0" x2="0" y1="0" y2="1">
+                          <stop offset="5%" stopColor="#ff3030" stopOpacity={0.35} />
+                          <stop offset="95%" stopColor="#ff3030" stopOpacity={0.04} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="4 4" vertical={false} stroke="#edf1f6" />
+                      <XAxis
+                        dataKey="time"
+                        tickLine={false}
+                        axisLine={false}
+                        tick={{ fill: "#738197", fontSize: 12 }}
+                      />
+                      <Tooltip />
+                      <Area
+                        dataKey="checks"
+                        type="monotone"
+                        stroke="#ea1d2c"
+                        strokeWidth={2}
+                        fill="url(#activityGradientStats)"
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="activity-placeholder">
+                    <span />
+                    <span />
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+                )}
+              </div>
+
+              <div className="activity-summary">
+                <div>
+                  <strong>{articles.length}</strong>
+                  <span>articles currently loaded</span>
+                </div>
+                <div>
+                  <strong>{notifications.length}</strong>
+                  <span>notifications created</span>
+                </div>
+              </div>
+            </section>
+          </>
+        )}
       </section>
 
       <aside className="insight-panel">
@@ -362,7 +890,7 @@ export function DashboardPage() {
               type="button"
               className={clsx(
                 "fact-check-switch__button",
-                factCheckMode === "url" && "is-active",
+                factCheckMode === "url" && "is-active"
               )}
               onClick={() => setFactCheckMode("url")}
             >
@@ -372,7 +900,7 @@ export function DashboardPage() {
               type="button"
               className={clsx(
                 "fact-check-switch__button",
-                factCheckMode === "text" && "is-active",
+                factCheckMode === "text" && "is-active"
               )}
               onClick={() => setFactCheckMode("text")}
             >
@@ -392,8 +920,13 @@ export function DashboardPage() {
             onChange={(event) => setFactInput(event.target.value)}
           />
 
-          <button type="button" className="primary-button">
-            Analyze Now
+          <button
+            type="button"
+            className="primary-button"
+            onClick={handleAnalyze}
+            disabled={analyzing}
+          >
+            {analyzing ? "Analyzing..." : "Analyze Now"}
           </button>
 
           <div
@@ -504,6 +1037,233 @@ export function DashboardPage() {
           </div>
         </section>
       </aside>
+
+      {showNotifications && (
+        <>
+          <div
+            onClick={closeOverlays}
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(15, 23, 42, 0.18)",
+              zIndex: 9998,
+            }}
+          />
+
+          <div
+            style={{
+              position: "fixed",
+              top: "88px",
+              right: "32px",
+              width: "340px",
+              background: "#fff",
+              border: "1px solid #eceef3",
+              borderRadius: "20px",
+              boxShadow: "0 20px 50px rgba(15, 23, 42, 0.18)",
+              padding: "16px",
+              zIndex: 9999,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: "12px",
+              }}
+            >
+              <strong>Notifications</strong>
+              <button
+                onClick={() => setNotifications([])}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "#64748b",
+                  fontWeight: 600,
+                }}
+              >
+                Clear
+              </button>
+            </div>
+
+            {notifications.length === 0 ? (
+              <p style={{ color: "#738197", fontSize: "14px", margin: 0 }}>
+                No notifications yet.
+              </p>
+            ) : (
+              <div style={{ display: "grid", gap: "10px", maxHeight: "320px", overflowY: "auto" }}>
+                {notifications.map((item) => (
+                  <div
+                    key={item.id}
+                    style={{
+                      padding: "12px",
+                      borderRadius: "14px",
+                      background: "#f8fafc",
+                      border: "1px solid #edf1f6",
+                    }}
+                  >
+                    <strong style={{ display: "block", marginBottom: "4px" }}>{item.title}</strong>
+                    <p style={{ margin: 0, color: "#516079", fontSize: "14px" }}>{item.message}</p>
+                    <span style={{ fontSize: "12px", color: "#94a3b8" }}>{item.createdAt}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {showProfilePanel && (
+        <>
+          <div
+            onClick={closeOverlays}
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(15, 23, 42, 0.28)",
+              zIndex: 9998,
+            }}
+          />
+
+          <div
+            style={{
+              position: "fixed",
+              top: "50%",
+              left: "50%",
+              transform: "translate(-50%, -50%)",
+              width: "min(92vw, 440px)",
+              background: "#fff",
+              border: "1px solid #eceef3",
+              borderRadius: "24px",
+              boxShadow: "0 28px 60px rgba(15, 23, 42, 0.18)",
+              padding: "20px",
+              zIndex: 9999,
+            }}
+          >
+            {currentUser ? (
+              <div style={{ display: "grid", gap: "14px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <strong>Connected user</strong>
+                  <button
+                    onClick={closeOverlays}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      fontSize: "18px",
+                      color: "#64748b",
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <div style={{ color: "#516079", display: "grid", gap: "6px" }}>
+                  <div><strong>Email:</strong> {currentUser.email}</div>
+                  <div><strong>Name:</strong> {currentUser.full_name || "Not provided"}</div>
+                </div>
+
+                <button
+                  className="primary-button"
+                  type="button"
+                  onClick={logoutUser}
+                >
+                  Logout
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: "grid", gap: "14px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ display: "flex", gap: "10px" }}>
+                    <button
+                      type="button"
+                      className={clsx("fact-check-switch__button", authMode === "login" && "is-active")}
+                      onClick={() => {
+                        setAuthMode("login");
+                        setAuthError("");
+                      }}
+                    >
+                      Login
+                    </button>
+                    <button
+                      type="button"
+                      className={clsx("fact-check-switch__button", authMode === "register" && "is-active")}
+                      onClick={() => {
+                        setAuthMode("register");
+                        setAuthError("");
+                      }}
+                    >
+                      Sign up
+                    </button>
+                  </div>
+
+                  <button
+                    onClick={closeOverlays}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      fontSize: "18px",
+                      color: "#64748b",
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+
+                {authMode === "register" && (
+                  <input
+                    type="text"
+                    placeholder="Full name"
+                    value={authFullName}
+                    onChange={(e) => setAuthFullName(e.target.value)}
+                    className="fact-check-input"
+                    style={{ minHeight: "52px" }}
+                  />
+                )}
+
+                <input
+                  type="email"
+                  placeholder="Email"
+                  value={authEmail}
+                  onChange={(e) => setAuthEmail(e.target.value)}
+                  className="fact-check-input"
+                  style={{ minHeight: "52px" }}
+                />
+
+                <input
+                  type="password"
+                  placeholder="Password"
+                  value={authPassword}
+                  onChange={(e) => setAuthPassword(e.target.value)}
+                  className="fact-check-input"
+                  style={{ minHeight: "52px" }}
+                />
+
+                {authError && (
+                  <p style={{ color: "var(--danger)", margin: 0, fontSize: "14px" }}>
+                    {authError}
+                  </p>
+                )}
+
+                <button
+                  className="primary-button"
+                  type="button"
+                  onClick={authMode === "login" ? handleLogin : handleRegister}
+                  disabled={authLoading}
+                >
+                  {authLoading
+                    ? "Please wait..."
+                    : authMode === "login"
+                    ? "Login"
+                    : "Create account"}
+                </button>
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </main>
   );
 }
