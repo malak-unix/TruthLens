@@ -1,5 +1,21 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
+async function readJson(response, fallbackMessage) {
+  let data = null;
+
+  try {
+    data = await response.json();
+  } catch {
+    data = null;
+  }
+
+  if (!response.ok) {
+    throw new Error(data?.detail || fallbackMessage);
+  }
+
+  return data;
+}
+
 export async function fetchNews(country = "", category = "") {
   const params = new URLSearchParams();
 
@@ -11,11 +27,7 @@ export async function fetchNews(country = "", category = "") {
     cache: "no-store",
   });
 
-  if (!response.ok) {
-    throw new Error("Failed to fetch news");
-  }
-
-  return response.json();
+  return readJson(response, "Failed to fetch news");
 }
 
 export async function fetchCategories() {
@@ -24,11 +36,40 @@ export async function fetchCategories() {
     cache: "no-store",
   });
 
-  if (!response.ok) {
-    throw new Error("Failed to fetch categories");
+  return readJson(response, "Failed to fetch categories");
+}
+
+export async function fetchTrending(region = "") {
+  const params = new URLSearchParams();
+
+  if (region) {
+    params.append("region", region);
   }
 
-  return response.json();
+  const response = await fetch(`${API_URL}/trending?${params.toString()}`, {
+    method: "GET",
+    cache: "no-store",
+  });
+
+  return readJson(response, "Failed to fetch trending topics");
+}
+
+export async function fetchOverviewStats() {
+  const response = await fetch(`${API_URL}/stats/overview`, {
+    method: "GET",
+    cache: "no-store",
+  });
+
+  return readJson(response, "Failed to fetch overview stats");
+}
+
+export async function fetchRefreshLogs() {
+  const response = await fetch(`${API_URL}/refresh/logs`, {
+    method: "GET",
+    cache: "no-store",
+  });
+
+  return readJson(response, "Failed to fetch refresh logs");
 }
 
 export async function analyzeContent(payload) {
@@ -40,13 +81,7 @@ export async function analyzeContent(payload) {
     body: JSON.stringify(payload),
   });
 
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data.detail || "Failed to analyze content");
-  }
-
-  return data;
+  return readJson(response, "Failed to analyze content");
 }
 
 export async function chatWithAssistant(payload) {
@@ -58,13 +93,7 @@ export async function chatWithAssistant(payload) {
     body: JSON.stringify(payload),
   });
 
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data.detail || "Failed to chat with assistant");
-  }
-
-  return data;
+  return readJson(response, "Failed to chat with assistant");
 }
 
 export async function registerUser(payload) {
@@ -76,13 +105,7 @@ export async function registerUser(payload) {
     body: JSON.stringify(payload),
   });
 
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data.detail || "Failed to register");
-  }
-
-  return data;
+  return readJson(response, "Failed to register");
 }
 
 export async function loginUser(payload) {
@@ -94,13 +117,7 @@ export async function loginUser(payload) {
     body: JSON.stringify(payload),
   });
 
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data.detail || "Failed to login");
-  }
-
-  return data;
+  return readJson(response, "Failed to login");
 }
 
 export async function fetchCurrentUser(token) {
@@ -112,11 +129,5 @@ export async function fetchCurrentUser(token) {
     cache: "no-store",
   });
 
-  const data = await response.json();
-
-  if (!response.ok) {
-    throw new Error(data.detail || "Failed to fetch current user");
-  }
-
-  return data;
+  return readJson(response, "Failed to fetch current user");
 }

@@ -1,10 +1,14 @@
 import re
 from urllib.parse import urlparse
 
+from app.content_extractor import extract_article_from_url
+from app.source_registry import get_source_profile
+
+
 SENSATIONAL_PATTERNS = [
     r"\bshocking\b",
     r"\bsecret\b",
-    r"\bcover-up\b",
+    r"\bcover[- ]?up\b",
     r"\bscandal\b",
     r"\burgent\b",
     r"\bincroyable\b",
@@ -20,178 +24,132 @@ SENSATIONAL_PATTERNS = [
     r"\byou won['’]t believe\b",
     r"\brevealed\b",
     r"\bclick here\b",
+    r"\bmust see\b",
 ]
 
-TRUSTED_PHRASES = [
-    "official statement",
-    "confirmed by",
-    "according to",
-    "press release",
-    "ministry of",
-    "parliament",
-    "government statement",
+ATTRIBUTION_PATTERNS = [
+    r"\baccording to\b",
+    r"\bconfirmed by\b",
+    r"\bsaid\b",
+    r"\bannounced\b",
+    r"\bofficial statement\b",
+    r"\bministry of\b",
+    r"\breuters reported\b",
+    r"\bbbc reported\b",
+    r"\bpolice said\b",
 ]
 
-TRUSTED_DOMAINS = [
-    "gov",
-    "who.int",
-    "un.org",
-    "reuters.com",
-    "bbc.com",
-    "bbc.co.uk",
-    "apnews.com",
-    "theguardian.com",
-    "guardian.co.uk",
-    "cnn.com",
-    "lematin.ma",
-    "mapnews.ma",
-]
+TRUST_LEVEL_SCORES = {
+    "high": 18,
+    "medium": 8,
+    "low": -6,
+    "unknown": -2,
+}
 
-LOW_CONFIDENCE_DOMAINS = [
-    "nypost.com",
-    "says.com",
-    "insidethemagic.net",
-    "disneyfoodblog.com",
-    "odditycentral.com",
-    "joefavorito.com",
-]
-
-SUSPICIOUS_DOMAINS = [
+SUSPICIOUS_DOMAIN_HINTS = [
     "blogspot",
     "telegram",
     "rumor",
     "viral",
-    "unknown",
+    "anon",
+    "clickbait",
 ]
 
-BALANCED_TERMS = ["according to", "said", "told", "announced", "confirmed"]
+
+def normalize_text(value: str) -> str:
+    return re.sub(r"\s+", " ", (value or "").strip().lower())
 
 
-def normalize_content(content: str) -> str:
-    return re.sub(r"\s+", " ", content.strip().lower())
-
-
-def detect_input_type(content: str) -> str:
-    if content.startswith("http://") or content.startswith("https://"):
+def detect_input_type(text: str, url: str) -> str:
+    if url:
+        return "url"
+    normalized = (text or "").strip().lower()
+    if normalized.startswith("http://") or normalized.startswith("https://"):
         return "url"
     return "text"
 
 
-def extract_domain(content: str) -> str:
-    parsed = urlparse(content)
-    return parsed.netloc.lower().replace("www.", "")
+def safe_domain_from_url(url: str) -> str:
+    try:
+        return urlparse(url).netloc.lower().replace("www.", "")
+    except Exception:
+        return ""
 
 
-def score_sensational_language(text: str):
+def score_sensational_language(text: str) -> tuple[int, list[str]]:
     penalty = 0
     signals = []
 
     for pattern in SENSATIONAL_PATTERNS:
         match = re.search(pattern, text)
         if match:
-            penalty += 10
+            penalty += 8
             signals.append(f"Sensational cue detected: {match.group(0)}")
 
     return penalty, signals
 
 
-def score_trusted_signals(text: str):
-    bonus = 0
-    found = 0
+def score_attribution(text: str) -> tuple[int, list[str]]:
+    matches = []
+    for pattern in ATTRIBUTION_PATTERNS:
+        match = re.search(pattern, text)
+        if match:
+            matches.append(match.group(0))
+
+    if len(matches) >= 2:
+        return 12, [f"Attribution markers detected: {', '.join(matches[:2])}"]
+    if len(matches) == 1:
+        return 5, [f"Attribution marker detected: {matches[0]}"]
+    return -10, ["No strong attribution marker detected"]
+
+
+def score_context_quality(text: str) -> tuple[int, list[str]]:
+    words = text.split()
+    count = len(words)
+
+    if count < 12:
+        return -20, ["Very little context available"]
+    if count < 35:
+        return -8, ["Limited contextual detail"]
+    if count < 90:
+        return 4, ["Enough context for a first-pass review"]
+    return 8, ["Rich contextual detail available"]
+
+
+def score_source_profile(domain: str, source_name: str) -> tuple[int, list[str], dict]:
+    profile = get_source_profile(url=domain, source_name=source_name)
+
+    trust_level = profile.get("trust_level", "unknown")
+    delta = TRUST_LEVEL_SCORES.get(trust_level, -2)
+
+    signals = [f"Source trust level evaluated as: {trust_level}"]
+
+    if any(token in domain for token in SUSPICIOUS_DOMAIN_HINTS):
+        delta -= 15
+        signals.append("Suspicious domain pattern detected")
+
+    return delta, signals, profile
+
+
+def score_url_quality(url: str) -> tuple[int, list[str]]:
     signals = []
-
-    for phrase in TRUSTED_PHRASES:
-        if phrase in text:
-            bonus += 7
-            found += 1
-            signals.append(f"Credibility cue detected: {phrase}")
-
-    return bonus, found, signals
-
-
-def score_url_reputation(text: str):
     delta = 0
-    signals = []
-    domain = extract_domain(text)
 
-    for trusted_domain in TRUSTED_DOMAINS:
-        if trusted_domain in domain:
-            delta += 15
-            signals.append(f"Trusted domain detected: {trusted_domain}")
-            break
+    if not url:
+        return 0, signals
 
-    for suspicious_domain in SUSPICIOUS_DOMAINS:
-        if suspicious_domain in domain:
-            delta -= 20
-            signals.append(f"Potentially weak source detected: {suspicious_domain}")
-            break
-
-    for low_confidence_domain in LOW_CONFIDENCE_DOMAINS:
-        if low_confidence_domain in domain:
-            delta -= 12
-            signals.append(f"Low-confidence source detected: {low_confidence_domain}")
-            break
-
-    if domain and text.startswith("https://"):
+    if url.startswith("https://"):
         delta += 2
-        signals.append("HTTPS source detected")
+        signals.append("HTTPS URL detected")
+    else:
+        delta -= 2
+        signals.append("Non-HTTPS URL detected")
 
-    if "utm_" in text or "fbclid=" in text or "preview=" in text:
-        delta -= 8
+    if "utm_" in url or "fbclid=" in url:
+        delta -= 5
         signals.append("Tracking-heavy URL detected")
 
     return delta, signals
-
-
-def score_length_and_context(text: str):
-    words = text.split()
-    signals = []
-    delta = 0
-
-    if len(words) < 8:
-        delta -= 24
-        signals.append("Very short content, almost no context")
-    elif len(words) < 18:
-        delta -= 12
-        signals.append("Short content, limited context")
-    elif len(words) > 35:
-        delta += 4
-        signals.append("Enough detail for contextual review")
-
-    return delta, signals
-
-
-def score_source_presence(text: str):
-    strong_source_patterns = [
-        r"\baccording to\b",
-        r"\bconfirmed by\b",
-        r"\bofficial statement\b",
-        r"\bgovernment statement\b",
-        r"\bministry of\b",
-        r"\bpolice said\b",
-        r"\breuters reported\b",
-        r"\bbbc reported\b",
-    ]
-
-    found = []
-    for pattern in strong_source_patterns:
-        match = re.search(pattern, text)
-        if match:
-            found.append(match.group(0))
-
-    if found:
-        return 10, [f"Source cue detected: {item}" for item in found[:2]]
-
-    return -12, ["No strong source attribution detected"]
-
-
-def score_balance_markers(text: str):
-    found = [term for term in BALANCED_TERMS if term in text]
-    if len(found) >= 2:
-        return 6, ["Balanced reporting markers detected"]
-    if len(found) == 1:
-        return 2, [f"Reporting marker detected: {found[0]}"]
-    return 0, []
 
 
 def label_from_score(score: int) -> str:
@@ -206,68 +164,130 @@ def label_from_score(score: int) -> str:
     return "High Risk"
 
 
-def build_explanation(input_type: str, score: int, label: str, signals: list[str]) -> str:
-    base = (
-        f"This {input_type} was evaluated using explainable credibility heuristics. "
-        f"Final score: {score}/100. Final label: {label}. "
-    )
-
-    if signals:
-        return base + "Main signals: " + ", ".join(signals[:6]) + "."
-
-    return base + "No major credibility signal detected."
+def build_confidence_note(text_length: int, source_trust: str, extracted_ok: bool) -> str:
+    if extracted_ok and source_trust in {"high", "medium"} and text_length > 35:
+        return "Moderate confidence: source and content signals were available."
+    if extracted_ok:
+        return "Limited confidence: some content was extracted, but corroboration is still needed."
+    return "Low confidence: limited content was available, so this is only an early credibility estimate."
 
 
-def analyze_text_content(content: str):
-    text = normalize_content(content)
+def build_verification_tips(label: str, domain: str) -> list[str]:
+    tips = [
+        "Check whether at least two independent sources report the same claim.",
+        "Look for named institutions, officials, or original documents.",
+    ]
 
-    if not text:
+    if domain:
+        tips.append(f"Review the reputation and ownership of {domain}.")
+
+    if label in {"Suspicious", "High Risk", "Unverified"}:
+        tips.append("Treat the claim as unverified until confirmed by stronger sources.")
+
+    return tips[:4]
+
+
+def analyze_payload(text: str | None = None, url: str | None = None, source_name: str = "") -> dict:
+    input_type = detect_input_type(text or "", url or "")
+    extracted = None
+    effective_text = normalize_text(text or "")
+    effective_url = (url or "").strip()
+
+    if input_type == "url":
+        target_url = effective_url or (text or "").strip()
+        extracted = extract_article_from_url(target_url)
+        effective_url = target_url
+        pieces = [
+            extracted.get("title", ""),
+            extracted.get("meta_description", ""),
+            extracted.get("text", ""),
+        ]
+        effective_text = normalize_text(" ".join(piece for piece in pieces if piece))
+        if not source_name:
+            source_name = extracted.get("domain", "")
+
+    if not effective_text and not effective_url:
         return {
             "credibility_score": 0,
             "credibility_label": "No Input",
             "explanation": "No content was provided for analysis.",
             "risk_signals": ["Empty input"],
+            "confidence_note": "No analysis possible.",
+            "verification_tips": ["Provide a text claim or a URL."],
+            "domain_analysis": {
+                "domain": "",
+                "trust_level": "unknown",
+                "source_type": "unknown",
+                "region": "unknown",
+            },
         }
 
-    input_type = detect_input_type(text)
-    score = 45
-    signals = []
+    score = 50
+    risk_signals = []
 
-    sensational_penalty, sensational_signals = score_sensational_language(text)
+    sensational_penalty, sensational_signals = score_sensational_language(effective_text)
     score -= sensational_penalty
-    signals.extend(sensational_signals)
+    risk_signals.extend(sensational_signals)
 
-    trusted_bonus, trusted_found, trusted_signals = score_trusted_signals(text)
-    score += trusted_bonus
-    signals.extend(trusted_signals)
+    attribution_delta, attribution_signals = score_attribution(effective_text)
+    score += attribution_delta
+    risk_signals.extend(attribution_signals)
 
-    if input_type == "url":
-        reputation_delta, reputation_signals = score_url_reputation(text)
-        score += reputation_delta
-        signals.extend(reputation_signals)
-
-    context_delta, context_signals = score_length_and_context(text)
+    context_delta, context_signals = score_context_quality(effective_text)
     score += context_delta
-    signals.extend(context_signals)
+    risk_signals.extend(context_signals)
 
-    source_delta, source_signals = score_source_presence(text)
+    domain = safe_domain_from_url(effective_url)
+    source_delta, source_signals, source_profile = score_source_profile(domain, source_name)
     score += source_delta
-    signals.extend(source_signals)
+    risk_signals.extend(source_signals)
 
-    balance_delta, balance_signals = score_balance_markers(text)
-    score += balance_delta
-    signals.extend(balance_signals)
+    url_delta, url_signals = score_url_quality(effective_url)
+    score += url_delta
+    risk_signals.extend(url_signals)
 
-    if trusted_found >= 2:
-        score += 4
+    if input_type == "url" and extracted and extracted.get("status") != "ok":
+        score -= 10
+        risk_signals.append("The article page could not be fully extracted")
 
     score = max(0, min(100, score))
     label = label_from_score(score)
-    explanation = build_explanation(input_type, score, label, signals)
+
+    explanation_parts = [
+        f"This {input_type} was evaluated with explainable credibility signals.",
+        f"Final score: {score}/100.",
+        f"Label: {label}.",
+        f"Source trust: {source_profile.get('trust_level', 'unknown')}.",
+    ]
+
+    if risk_signals:
+        explanation_parts.append("Main signals: " + ", ".join(risk_signals[:6]) + ".")
+
+    confidence_note = build_confidence_note(
+        text_length=len(effective_text.split()),
+        source_trust=source_profile.get("trust_level", "unknown"),
+        extracted_ok=bool(extracted and extracted.get("status") == "ok"),
+    )
 
     return {
         "credibility_score": score,
         "credibility_label": label,
-        "explanation": explanation,
-        "risk_signals": signals,
+        "explanation": " ".join(explanation_parts),
+        "risk_signals": risk_signals[:8],
+        "confidence_note": confidence_note,
+        "verification_tips": build_verification_tips(label, domain),
+        "domain_analysis": {
+            "domain": domain,
+            "trust_level": source_profile.get("trust_level", "unknown"),
+            "source_type": source_profile.get("source_type", "unknown"),
+            "region": source_profile.get("region", "unknown"),
+        },
+        "extracted_preview": {
+            "title": extracted.get("title", "") if extracted else "",
+            "meta_description": extracted.get("meta_description", "") if extracted else "",
+        },
     }
+
+
+def analyze_text_content(content: str):
+    return analyze_payload(text=content)

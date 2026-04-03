@@ -3,110 +3,114 @@ from typing import List
 import requests
 
 from app.config import get_settings
+from app.database import get_recent_user_checks
 from app.schemas import ChatRequest, ChatResponse
 
-ASSISTANT_SCOPE: List[str] = [
-    "summarize a news item or claim",
-    "explain a credibility score in simple terms",
-    "reformulate a claim into a clearer fact-checking question",
-    "suggest practical verification steps",
-]
+
+GEMINI_API_TEMPLATE = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 ASSISTANT_BOUNDARY_MESSAGE = (
-    "I can help with TruthLens tasks only: summarize a claim, explain a score, "
-    "rephrase a claim for verification, or suggest fact-checking steps."
+    "I can help only with TruthLens tasks: explain a credibility score, summarize a news item, "
+    "rephrase a claim for fact-checking, compare risky vs better-supported narratives, or suggest verification steps."
 )
-GEMINI_API_TEMPLATE = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
 
 def build_chat_system_prompt() -> str:
-    joined_scope = "; ".join(ASSISTANT_SCOPE)
     return (
-        "You are the TruthLens Assistant. "
-        "Stay focused on fact-checking support and explainability. "
-        f"You may only: {joined_scope}. "
-        "Do not claim certainty, do not invent evidence, and do not present opinions as facts. "
-        "When the request goes outside this scope, refuse briefly and redirect to verification help."
+        "You are the TruthLens Assistant, a domain-specific fact-check support assistant. "
+        "You do not decide absolute truth. "
+        "You estimate credibility using explainable signals and help the user verify responsibly. "
+        "Be concise, practical, and product-specific. "
+        "Never invent evidence. Never present speculation as confirmed fact. "
+        "Always keep the answer grounded in the article context, risk signals, and verification workflow."
     )
+
+
+def build_memory_snippet() -> str:
+    checks = get_recent_user_checks(limit=5)
+    if not checks:
+        return "No recent verification memory available."
+
+    lines = ["Recent verification memory:"]
+    for item in checks:
+        lines.append(
+            f"- {item['input_type']} | label={item['credibility_label']} | score={item['credibility_score']}"
+        )
+    return "\n".join(lines)
 
 
 def build_chat_user_prompt(payload: ChatRequest) -> str:
-    context_lines = [
-        f"User request: {payload.message.strip()}",
+    lines = [
+        f"User message: {payload.message.strip()}",
+        build_memory_snippet(),
     ]
 
     if payload.article_title:
-        context_lines.append(f"Article title: {payload.article_title.strip()}")
-
+        lines.append(f"Article title: {payload.article_title}")
     if payload.article_summary:
-        context_lines.append(f"Article summary: {payload.article_summary.strip()}")
-
+        lines.append(f"Article summary: {payload.article_summary}")
     if payload.article_score is not None:
-        context_lines.append(f"Credibility score: {payload.article_score}/100")
-
+        lines.append(f"Article score: {payload.article_score}/100")
     if payload.article_label:
-        context_lines.append(f"Credibility label: {payload.article_label.strip()}")
+        lines.append(f"Article label: {payload.article_label}")
+    if payload.article_url:
+        lines.append(f"Article URL: {payload.article_url}")
+    if payload.article_source:
+        lines.append(f"Article source: {payload.article_source}")
+    if payload.article_region:
+        lines.append(f"Article region: {payload.article_region}")
+    if payload.risk_signals:
+        lines.append("Risk signals: " + ", ".join(payload.risk_signals[:6]))
 
-    context_lines.append(
-        "Reply with a concise assistant answer and concrete verification guidance."
+    lines.append(
+        "Respond with a concise answer and practical next checks. "
+        "If the content looks weakly confirmed, say so clearly."
     )
-    return "\n".join(context_lines)
+    return "\n".join(lines)
 
 
 def build_suggested_checks(payload: ChatRequest) -> List[str]:
     checks = []
 
     if payload.article_label:
-        checks.append(f"Verify why the content was labelled '{payload.article_label}'.")
-
+        checks.append(f"Verify why the content received the label '{payload.article_label}'.")
     if payload.article_score is not None:
-        checks.append(f"Review which signals influenced the {payload.article_score}/100 score.")
+        checks.append(f"Inspect the signals behind the {payload.article_score}/100 credibility score.")
+    if payload.article_source:
+        checks.append(f"Check the reliability and ownership of the source '{payload.article_source}'.")
 
-    if payload.article_title:
-        checks.append("Search for corroboration from official or institutional sources.")
-
-    checks.append("Compare the claim with at least two independent sources.")
-    return checks[:3]
+    checks.append("Look for at least two independent corroborating sources.")
+    return checks[:4]
 
 
 def build_local_fallback_answer(payload: ChatRequest) -> str:
-    message = payload.message.strip()
-    lowered = message.lower()
+    message = payload.message.strip().lower()
 
     if not message:
         return "Please enter a question or claim for the TruthLens assistant."
 
-    if any(keyword in lowered for keyword in ["summary", "summarize", "resume"]):
+    if any(token in message for token in ["summary", "summarize", "resume"]):
         if payload.article_summary:
             return (
-                f"Summary: {payload.article_summary.strip()} "
-                "Before trusting it, confirm the primary source, the publication date, and one independent corroboration."
-            )
-        if payload.article_title:
-            return (
-                f"Summary: the claim appears to be about '{payload.article_title.strip()}'. "
-                "Open the original article and verify who is making the claim and what evidence is cited."
+                f"Summary: {payload.article_summary} "
+                "Next, verify the primary source, publication date, and whether stronger sources report the same claim."
             )
 
-    if any(keyword in lowered for keyword in ["score", "explain", "why", "pourquoi", "credibility"]):
+    if any(token in message for token in ["score", "why", "explain", "credibility", "pourquoi"]):
         if payload.article_score is not None and payload.article_label:
             return (
-                f"The current item is scored {payload.article_score}/100 with label '{payload.article_label}'. "
-                "This usually reflects source reputation, contextual detail, and whether the claim looks corroborated or sensational."
+                f"This item is currently rated {payload.article_score}/100 and labelled '{payload.article_label}'. "
+                "That estimate usually depends on source trust, attribution quality, context richness, and suspicious language cues."
             )
-        return "A credibility score is usually driven by source quality, corroboration, and how much concrete context the content provides."
 
-    if any(keyword in lowered for keyword in ["rephrase", "rewrite", "reformulate"]):
+    if any(token in message for token in ["rephrase", "rewrite", "reformulate"]):
         if payload.article_title:
             return (
-                "A clearer fact-check question would be: "
-                f"'What verified evidence confirms or disproves the claim that {payload.article_title.strip()}?'"
+                f"A clearer verification question is: 'What verified evidence confirms or disproves the claim that {payload.article_title}?'"
             )
-        return "A clearer fact-check question would be: 'What verified evidence supports this claim, and which official sources confirm it?'"
 
     return (
-        "Start with the original source, then confirm the date, named actors, and any official statement. "
-        "If the claim is urgent or sensational, treat it as unverified until two independent sources align."
+        "Start from the original source, then verify the named actors, date, official statements, and at least one independent corroboration."
     )
 
 
@@ -116,8 +120,8 @@ def extract_answer(data: dict) -> str:
         return ""
 
     parts = candidates[0].get("content", {}).get("parts", [])
-    text_parts = [part.get("text", "").strip() for part in parts if part.get("text")]
-    return "\n".join(part for part in text_parts if part).strip()
+    texts = [part.get("text", "").strip() for part in parts if part.get("text")]
+    return "\n".join(item for item in texts if item).strip()
 
 
 class ChatService:
@@ -128,10 +132,13 @@ class ChatService:
         return self.settings.gemini_enabled
 
     def chat(self, payload: ChatRequest) -> ChatResponse:
-        trimmed_message = payload.message.strip()
-
-        if not trimmed_message:
-            return self.build_placeholder_response(payload)
+        if not payload.message.strip():
+            return ChatResponse(
+                answer="Please enter a question or claim for the TruthLens assistant.",
+                suggested_checks=["Ask about a score, summary, or next verification steps."],
+                model="local-fallback",
+                grounded_in_scope=True,
+            )
 
         if not self.is_configured():
             return ChatResponse(
@@ -142,102 +149,69 @@ class ChatService:
             )
 
         try:
-            answer, model_used = self.ask_gemini(payload)
-        except RuntimeError as exc:
-            detail = str(exc)
-            if "RESOURCE_EXHAUSTED" in detail or "quota" in detail.lower():
-                return ChatResponse(
-                    answer=(
-                        "Gemini is configured, but the current API quota is exhausted right now. "
-                        "Use the verification steps below, or retry after the quota resets."
-                    ),
-                    suggested_checks=build_suggested_checks(payload),
-                    model=self.settings.gemini_model,
-                    grounded_in_scope=True,
-                )
-            raise
+            answer, used_model = self.ask_gemini(payload)
+        except RuntimeError:
+            return ChatResponse(
+                answer=build_local_fallback_answer(payload),
+                suggested_checks=build_suggested_checks(payload),
+                model="local-fallback",
+                grounded_in_scope=True,
+            )
 
         if not answer:
-            return self.build_placeholder_response(payload)
+            answer = ASSISTANT_BOUNDARY_MESSAGE
 
         return ChatResponse(
             answer=answer,
             suggested_checks=build_suggested_checks(payload),
-            model=model_used,
+            model=used_model,
             grounded_in_scope=True,
         )
 
     def ask_gemini(self, payload: ChatRequest) -> tuple[str, str]:
-        request_payload = {
+        body = {
             "system_instruction": {
-                "parts": [
-                    {
-                        "text": build_chat_system_prompt(),
-                    }
-                ]
+                "parts": [{"text": build_chat_system_prompt()}]
             },
             "contents": [
                 {
                     "role": "user",
-                    "parts": [
-                        {
-                            "text": build_chat_user_prompt(payload),
-                        }
-                    ],
+                    "parts": [{"text": build_chat_user_prompt(payload)}],
                 }
             ],
             "generationConfig": {
                 "temperature": 0.3,
-                "maxOutputTokens": 350,
+                "maxOutputTokens": 400,
             },
         }
 
-        candidate_models = []
-        for name in [self.settings.gemini_model, "gemini-2.0-flash", "gemini-2.5-flash"]:
-            if name not in candidate_models:
-                candidate_models.append(name)
+        candidates = []
+        for model_name in [self.settings.gemini_model, "gemini-2.5-flash", "gemini-2.0-flash"]:
+            if model_name not in candidates:
+                candidates.append(model_name)
 
         last_error = "Gemini request failed."
 
-        for model_name in candidate_models:
-            response = requests.post(
-                GEMINI_API_TEMPLATE.format(model=model_name),
-                params={"key": self.settings.gemini_api_key},
-                headers={"Content-Type": "application/json"},
-                json=request_payload,
-                timeout=self.settings.gemini_timeout_seconds,
-            )
+        for model_name in candidates:
+            try:
+                response = requests.post(
+                    GEMINI_API_TEMPLATE.format(model=model_name),
+                    params={"key": self.settings.gemini_api_key},
+                    headers={"Content-Type": "application/json"},
+                    json=body,
+                    timeout=self.settings.gemini_timeout_seconds,
+                )
+            except requests.RequestException as exc:
+                last_error = str(exc)
+                continue
 
             if response.ok:
                 answer = extract_answer(response.json())
-                if not answer:
-                    raise RuntimeError("Gemini returned an empty response.")
-                return answer, model_name
-
-            if response.status_code in {404, 429}:
-                last_error = response.text.strip() or last_error
+                if answer:
+                    return answer, model_name
+                last_error = "Gemini returned an empty response."
                 continue
 
-            raise RuntimeError(response.text.strip() or "Gemini request failed.")
+            last_error = response.text.strip() or last_error
 
         raise RuntimeError(last_error)
-
-    def build_placeholder_response(self, payload: ChatRequest) -> ChatResponse:
-        trimmed_message = payload.message.strip()
-
-        if not trimmed_message:
-            return ChatResponse(
-                answer="Please enter a question or claim for the TruthLens assistant.",
-                suggested_checks=[
-                    "Add the exact claim, URL, or headline you want to verify.",
-                ],
-                model=self.settings.gemini_model,
-                grounded_in_scope=True,
-            )
-
-        return ChatResponse(
-            answer=ASSISTANT_BOUNDARY_MESSAGE,
-            suggested_checks=build_suggested_checks(payload),
-            model=self.settings.gemini_model,
-            grounded_in_scope=True,
-        )

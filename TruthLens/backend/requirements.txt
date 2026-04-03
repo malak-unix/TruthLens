@@ -7,3 +7,4 @@ python-jose==3.5.0
 apscheduler==3.11.2
 python-dotenv==1.2.2
 requests==2.33.1
+beautifulsoup4==4.12.3

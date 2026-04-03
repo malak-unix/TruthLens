@@ -21,16 +21,13 @@ import {
   XAxis,
 } from "recharts";
 
-import {
-  activitySeries,
-  factCheckTips,
-  navigationItems,
-  topicStats,
-} from "../lib/mock-data";
+import { factCheckTips, navigationItems } from "../lib/mock-data";
 
 import {
   fetchNews,
   fetchCategories,
+  fetchTrending,
+  fetchOverviewStats,
   analyzeContent,
   chatWithAssistant,
   registerUser,
@@ -70,6 +67,10 @@ function formatPercent(score) {
 }
 
 function getApiCountry(region) {
+  return region === "morocco" ? "ma" : "world";
+}
+
+function getApiRegion(region) {
   return region === "morocco" ? "ma" : "world";
 }
 
@@ -127,6 +128,8 @@ function getCategoryImage(category) {
       "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=900&q=80",
     Politics:
       "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=900&q=80",
+    International:
+      "https://images.unsplash.com/photo-1504711434969-e33886168f5c?auto=format&fit=crop&w=900&q=80",
   };
 
   return (
@@ -151,6 +154,21 @@ function mapBackendArticle(article) {
     url: article.url,
     region: article.country === "ma" ? "morocco" : "world",
     explanation: article.explanation,
+    batchLabel: article.batch_label,
+    sourceType: article.source_type,
+    sourceTrustLevel: article.source_trust_level,
+  };
+}
+
+function mapTrendingTopic(topic) {
+  return {
+    id: `${topic.region}-${topic.topic}`,
+    label: topic.topic,
+    value: topic.intensity,
+    articleCount: topic.article_count,
+    freshness: topic.freshness,
+    credibilityWarning: topic.credibility_warning,
+    region: topic.region === "ma" ? "morocco" : "world",
   };
 }
 
@@ -192,6 +210,23 @@ function mapAnalysisResult(result) {
         ? result.risk_signals
         : ["No major risk signal detected"],
   };
+}
+
+function buildActivityFromStats(stats, trendingCount) {
+  const total = stats?.total_articles || 0;
+  const suspicious = stats?.suspicious_count || 0;
+  const reliable = stats?.reliable_count || 0;
+  const world = stats?.world_articles || 0;
+  const morocco = stats?.morocco_articles || 0;
+
+  return [
+    { time: "06:00", checks: Math.max(4, Math.round(total * 0.2)) },
+    { time: "09:00", checks: Math.max(6, Math.round(total * 0.35)) },
+    { time: "12:00", checks: Math.max(8, Math.round((total + trendingCount) * 0.45)) },
+    { time: "15:00", checks: Math.max(6, Math.round((world + morocco) * 0.6)) },
+    { time: "18:00", checks: Math.max(5, Math.round((suspicious + reliable + trendingCount) * 0.9)) },
+    { time: "21:00", checks: Math.max(4, Math.round((total + suspicious) * 0.4)) },
+  ];
 }
 
 function ArticleCard({ article, index }) {
@@ -245,7 +280,7 @@ function ArticleCard({ article, index }) {
   );
 }
 
-function SummaryCard({ eyebrow, title, description, value, index }) {
+function SummaryCard({ eyebrow, title, description, value, index, danger = false }) {
   return (
     <article className="article-card" style={{ animationDelay: `${index * 90}ms` }}>
       <div className="article-card__content">
@@ -263,6 +298,9 @@ function SummaryCard({ eyebrow, title, description, value, index }) {
             <span>Value:</span>
             <strong>{value}</strong>
           </div>
+          {danger ? (
+            <span className="status-chip status-chip-danger">Watch</span>
+          ) : null}
         </div>
       </div>
     </article>
@@ -381,6 +419,12 @@ export function DashboardPage() {
   const [articleCategories, setArticleCategories] = useState(["All"]);
   const [newsLoading, setNewsLoading] = useState(true);
   const [newsError, setNewsError] = useState("");
+
+  const [trendingTopics, setTrendingTopics] = useState([]);
+  const [trendingLoading, setTrendingLoading] = useState(false);
+
+  const [overviewStats, setOverviewStats] = useState(null);
+  const [statsLoading, setStatsLoading] = useState(false);
 
   const [analysisResult, setAnalysisResult] = useState(buildEmptyAnalysis());
   const [analyzing, setAnalyzing] = useState(false);
@@ -573,6 +617,40 @@ export function DashboardPage() {
     loadNews();
   }, [activeRegion, activeCategory]);
 
+  useEffect(() => {
+    async function loadTrending() {
+      try {
+        setTrendingLoading(true);
+        const data = await fetchTrending(getApiRegion(activeRegion));
+        setTrendingTopics(data.map(mapTrendingTopic));
+      } catch (error) {
+        console.error("Failed to load trending:", error);
+        setTrendingTopics([]);
+      } finally {
+        setTrendingLoading(false);
+      }
+    }
+
+    loadTrending();
+  }, [activeRegion]);
+
+  useEffect(() => {
+    async function loadStats() {
+      try {
+        setStatsLoading(true);
+        const data = await fetchOverviewStats();
+        setOverviewStats(data);
+      } catch (error) {
+        console.error("Failed to load stats:", error);
+        setOverviewStats(null);
+      } finally {
+        setStatsLoading(false);
+      }
+    }
+
+    loadStats();
+  }, [articles.length]);
+
   async function handleAnalyze() {
     if (!factInput.trim()) {
       setAnalysisResult(buildEmptyAnalysis());
@@ -634,6 +712,10 @@ export function DashboardPage() {
         article_summary: contextArticle?.summary,
         article_score: contextArticle?.score,
         article_label: contextArticle?.badge,
+        article_url: contextArticle?.url,
+        article_source: contextArticle?.source,
+        article_region: contextArticle?.region,
+        risk_signals: analysisResult?.evidence || [],
       });
 
       setAssistantReply(result);
@@ -671,17 +753,25 @@ export function DashboardPage() {
     return matchesRegion && matchesCategory && matchesSearch;
   });
 
+  const visibleTrending = trendingTopics.filter((topic) => topic.region === activeRegion);
+
   const categorySummary = useMemo(() => {
     return articleCategories
       .filter((cat) => cat !== "All")
       .map((cat) => ({
         label: cat,
-        value: articles.filter((article) => article.category === cat).length,
-      }));
-  }, [articleCategories, articles]);
+        value: articles.filter(
+          (article) => article.category === cat && article.region === activeRegion
+        ).length,
+      }))
+      .filter((item) => item.value > 0);
+  }, [articleCategories, articles, activeRegion]);
 
-  const activeTopics = topicStats[activeRegion];
-  const activity = activitySeries[activeRegion];
+  const activity = useMemo(
+    () => buildActivityFromStats(overviewStats, visibleTrending.length),
+    [overviewStats, visibleTrending.length]
+  );
+
   const resultStyle = resultStyles[analysisResult.tone] || resultStyles.watch;
 
   return (
@@ -780,7 +870,9 @@ export function DashboardPage() {
                   Backend live data
                 </span>
                 <span className="hero-card__note">
-                  Backend FastAPI + SQLite + JWT connecte
+                  {overviewStats?.last_refresh_batch
+                    ? `Last refresh: ${overviewStats.last_refresh_batch}`
+                    : "Backend FastAPI + SQLite + JWT connecte"}
                 </span>
               </div>
             </section>
@@ -904,16 +996,35 @@ export function DashboardPage() {
             </div>
 
             <div className="news-list">
-              {activeTopics.map((topic, index) => (
-                <SummaryCard
-                  key={topic.label}
-                  eyebrow="Trending"
-                  title={topic.label}
-                  description="Ce sujet est actuellement parmi les plus suivis dans la region selectionnee."
-                  value={topic.value}
-                  index={index}
-                />
-              ))}
+              {trendingLoading ? (
+                <div className="empty-state">
+                  <CheckCircle2 size={28} />
+                  <div>
+                    <h3>Loading trends...</h3>
+                    <p>Les tendances sont en cours de chargement depuis le backend.</p>
+                  </div>
+                </div>
+              ) : visibleTrending.length > 0 ? (
+                visibleTrending.map((topic, index) => (
+                  <SummaryCard
+                    key={topic.id}
+                    eyebrow="Trending"
+                    title={topic.label}
+                    description={`${topic.articleCount} related article(s) · freshness: ${topic.freshness}`}
+                    value={topic.value}
+                    danger={topic.credibilityWarning}
+                    index={index}
+                  />
+                ))
+              ) : (
+                <div className="empty-state">
+                  <CheckCircle2 size={28} />
+                  <div>
+                    <h3>No trending topics</h3>
+                    <p>Aucune tendance n'est disponible pour cette region pour le moment.</p>
+                  </div>
+                </div>
+              )}
             </div>
           </>
         )}
@@ -956,16 +1067,26 @@ export function DashboardPage() {
             </div>
 
             <div className="news-list">
-              {categorySummary.map((item, index) => (
-                <SummaryCard
-                  key={item.label}
-                  eyebrow="Category"
-                  title={item.label}
-                  description="Nombre d'articles actuellement disponibles dans cette categorie."
-                  value={item.value}
-                  index={index}
-                />
-              ))}
+              {categorySummary.length > 0 ? (
+                categorySummary.map((item, index) => (
+                  <SummaryCard
+                    key={item.label}
+                    eyebrow="Category"
+                    title={item.label}
+                    description="Nombre d'articles actuellement disponibles dans cette categorie."
+                    value={item.value}
+                    index={index}
+                  />
+                ))
+              ) : (
+                <div className="empty-state">
+                  <CheckCircle2 size={28} />
+                  <div>
+                    <h3>No category data</h3>
+                    <p>Aucune categorie exploitable pour la region selectionnee.</p>
+                  </div>
+                </div>
+              )}
             </div>
           </>
         )}
@@ -1037,12 +1158,23 @@ export function DashboardPage() {
 
               <div className="activity-summary">
                 <div>
-                  <strong>{articles.length}</strong>
+                  <strong>{statsLoading ? "..." : overviewStats?.total_articles ?? 0}</strong>
                   <span>articles currently loaded</span>
                 </div>
                 <div>
-                  <strong>{notifications.length}</strong>
-                  <span>notifications created</span>
+                  <strong>{statsLoading ? "..." : overviewStats?.suspicious_count ?? 0}</strong>
+                  <span>stories flagged for review</span>
+                </div>
+              </div>
+
+              <div className="activity-summary" style={{ marginTop: "14px" }}>
+                <div>
+                  <strong>{statsLoading ? "..." : overviewStats?.morocco_articles ?? 0}</strong>
+                  <span>Morocco articles</span>
+                </div>
+                <div>
+                  <strong>{statsLoading ? "..." : overviewStats?.world_articles ?? 0}</strong>
+                  <span>World articles</span>
                 </div>
               </div>
             </section>
@@ -1144,12 +1276,19 @@ export function DashboardPage() {
           </div>
 
           <div className="topic-list">
-            {activeTopics.map((topic) => (
-              <div key={topic.label} className="topic-row">
-                <span>{topic.label}</span>
-                <strong>{topic.value}</strong>
+            {visibleTrending.length > 0 ? (
+              visibleTrending.slice(0, 6).map((topic) => (
+                <div key={topic.id} className="topic-row">
+                  <span>{topic.label}</span>
+                  <strong>{topic.value}</strong>
+                </div>
+              ))
+            ) : (
+              <div className="topic-row">
+                <span>No live trends</span>
+                <strong>--</strong>
               </div>
-            ))}
+            )}
           </div>
         </section>
 
@@ -1201,11 +1340,11 @@ export function DashboardPage() {
 
           <div className="activity-summary">
             <div>
-              <strong>{activeRegion === "morocco" ? "124" : "173"}</strong>
+              <strong>{overviewStats?.total_articles ?? articles.length}</strong>
               <span>checks analysed today</span>
             </div>
             <div>
-              <strong>{activeRegion === "morocco" ? "18" : "31"}</strong>
+              <strong>{overviewStats?.suspicious_count ?? 0}</strong>
               <span>stories flagged for review</span>
             </div>
           </div>
