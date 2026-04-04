@@ -17,3 +17,13 @@ export const factCheckTips = [
   "Titre viral",
   "Post social",
 ];
+
+export const assistantStarterPrompts = [
+  "Analyze this URL",
+  "Check this claim",
+  "Why is this suspicious?",
+  "Summarize this article",
+  "Explain this trend",
+  "What should I verify next?",
+  "Compare Morocco vs World narratives",
+];

@@ -25,6 +25,7 @@ def load_local_env_file(path: Path):
 
 
 load_local_env_file(BASE_DIR / ".env")
+load_local_env_file(BASE_DIR / ".env.example")
 
 
 def normalize_gemini_model(model_name: str) -> str:
@@ -48,10 +49,26 @@ class Settings:
 
     newsapi_api_key: str
     gnews_api_key: str
+    guardian_api_key: str
+    gdelt_enabled: bool
+    x_bearer_token: str
+    reddit_enabled: bool
+    reddit_user_agent: str
+    instagram_access_token: str
+    instagram_enabled: bool
+    tiktok_research_access_token: str
+    tiktok_enabled: bool
 
     request_timeout_seconds: int
     rss_timeout_seconds: int
     default_refresh_limit: int
+    general_feed_limit: int
+    priority_feed_limit: int
+    gdelt_max_records: int
+    refresh_interval_minutes: int
+    startup_refresh_max_age_minutes: int
+    social_trend_limit: int
+    trend_provider_timeout_seconds: int
 
     @property
     def gemini_enabled(self) -> bool:
@@ -65,9 +82,27 @@ class Settings:
     def gnews_enabled(self) -> bool:
         return bool(self.gnews_api_key.strip())
 
+    @property
+    def guardian_enabled(self) -> bool:
+        return bool((self.guardian_api_key or "").strip())
+
+    @property
+    def x_enabled(self) -> bool:
+        return bool(self.x_bearer_token.strip())
+
+    @property
+    def instagram_provider_enabled(self) -> bool:
+        return self.instagram_enabled and bool(self.instagram_access_token.strip())
+
+    @property
+    def tiktok_provider_enabled(self) -> bool:
+        return self.tiktok_enabled and bool(self.tiktok_research_access_token.strip())
+
 
 @lru_cache
 def get_settings() -> Settings:
+    default_refresh_limit = int(os.getenv("DEFAULT_REFRESH_LIMIT", "12"))
+
     return Settings(
         app_env=os.getenv("APP_ENV", "development"),
         debug=os.getenv("DEBUG", "true").lower() == "true",
@@ -83,8 +118,24 @@ def get_settings() -> Settings:
 
         newsapi_api_key=os.getenv("NEWSAPI_API_KEY", ""),
         gnews_api_key=os.getenv("GNEWS_API_KEY", ""),
+        guardian_api_key=os.getenv("GUARDIAN_API_KEY", ""),
+        gdelt_enabled=os.getenv("ENABLE_GDELT", "true").lower() == "true",
+        x_bearer_token=os.getenv("X_BEARER_TOKEN", ""),
+        reddit_enabled=os.getenv("ENABLE_REDDIT_TRENDS", "true").lower() == "true",
+        reddit_user_agent=os.getenv("REDDIT_USER_AGENT", "TruthLens/1.0"),
+        instagram_access_token=os.getenv("INSTAGRAM_ACCESS_TOKEN", ""),
+        instagram_enabled=os.getenv("ENABLE_INSTAGRAM_TRENDS", "false").lower() == "true",
+        tiktok_research_access_token=os.getenv("TIKTOK_RESEARCH_ACCESS_TOKEN", ""),
+        tiktok_enabled=os.getenv("ENABLE_TIKTOK_TRENDS", "false").lower() == "true",
 
         request_timeout_seconds=int(os.getenv("REQUEST_TIMEOUT_SECONDS", "8")),
         rss_timeout_seconds=int(os.getenv("RSS_TIMEOUT_SECONDS", "6")),
-        default_refresh_limit=int(os.getenv("DEFAULT_REFRESH_LIMIT", "12")),
+        default_refresh_limit=default_refresh_limit,
+        general_feed_limit=int(os.getenv("GENERAL_FEED_LIMIT", str(default_refresh_limit))),
+        priority_feed_limit=int(os.getenv("PRIORITY_FEED_LIMIT", "6")),
+        gdelt_max_records=int(os.getenv("GDELT_MAX_RECORDS", "10")),
+        refresh_interval_minutes=int(os.getenv("REFRESH_INTERVAL_MINUTES", "45")),
+        startup_refresh_max_age_minutes=int(os.getenv("STARTUP_REFRESH_MAX_AGE_MINUTES", "120")),
+        social_trend_limit=int(os.getenv("SOCIAL_TREND_LIMIT", "8")),
+        trend_provider_timeout_seconds=int(os.getenv("TREND_PROVIDER_TIMEOUT_SECONDS", "8")),
     )

@@ -241,4 +241,10 @@ if settings.enable_debug_endpoints:
             "gemini_enabled": settings.gemini_enabled,
             "newsapi_enabled": settings.newsapi_enabled,
             "gnews_enabled": settings.gnews_enabled,
+            "guardian_enabled": settings.guardian_enabled,
+            "gdelt_enabled": settings.gdelt_enabled,
+            "x_enabled": settings.x_enabled,
+            "reddit_enabled": settings.reddit_enabled,
+            "instagram_enabled": settings.instagram_provider_enabled,
+            "tiktok_enabled": settings.tiktok_provider_enabled,
         }

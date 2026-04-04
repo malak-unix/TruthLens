@@ -1,6 +1,6 @@
 "use client";
 
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import {
   Activity,
@@ -8,7 +8,10 @@ import {
   CheckCircle2,
   Clock3,
   ExternalLink,
+  Link2,
+  MessageSquareText,
   Search,
+  SendHorizontal,
   Sparkles,
   UserRound,
 } from "lucide-react";
@@ -21,14 +24,13 @@ import {
   XAxis,
 } from "recharts";
 
-import { factCheckTips, navigationItems } from "../lib/mock-data";
+import { assistantStarterPrompts, navigationItems } from "../lib/mock-data";
 
 import {
   fetchNews,
   fetchCategories,
   fetchTrending,
   fetchOverviewStats,
-  analyzeContent,
   chatWithAssistant,
   registerUser,
   loginUser,
@@ -157,18 +159,27 @@ function mapBackendArticle(article) {
     batchLabel: article.batch_label,
     sourceType: article.source_type,
     sourceTrustLevel: article.source_trust_level,
+    priorityTopic: article.priority_topic || "",
+    rankingScore: article.ranking_score || 0,
   };
 }
 
 function mapTrendingTopic(topic) {
   return {
-    id: `${topic.region}-${topic.topic}`,
-    label: topic.topic,
+    id: `${topic.region}-${topic.normalized_topic || topic.topic}`,
+    label: topic.title || topic.topic,
+    normalizedTopic: topic.normalized_topic || topic.topic,
     value: topic.intensity,
-    articleCount: topic.article_count,
-    freshness: topic.freshness,
+    articleCount: topic.related_articles_count || topic.article_count,
+    freshness: topic.freshness_label || topic.freshness,
     credibilityWarning: topic.credibility_warning,
     region: topic.region === "ma" ? "morocco" : "world",
+    sourceSignals: topic.source_signals || [],
+    platformSignals: topic.platform_signals || [],
+    viralityScore: topic.virality_score || topic.intensity,
+    verificationGapScore: topic.verification_gap_score || 0,
+    confidenceNote: topic.confidence_note || "",
+    recencyScore: topic.recency_score || 0,
   };
 }
 
@@ -181,21 +192,40 @@ function buildEmptyAnalysis() {
     explanation:
       "Collez une URL ou un texte. Cette zone est maintenant connectee au backend FastAPI /analyze.",
     evidence: ["Champ vide", "Attente d'une saisie utilisateur"],
+    sourceScore: 0,
+    articleScore: 0,
+    corroborationScore: 0,
+    verificationStatus: "No verification yet",
+    sourceProfile: null,
+    finalLabel: "Aucune entree",
   };
 }
 
-function buildEmptyAssistantReply() {
+function buildConversationMessage(role, content, extra = {}) {
   return {
-    answer:
-      "Ask the TruthLens assistant to summarize a claim, explain a credibility score, or suggest verification steps.",
-    suggested_checks: [
-      "Paste a short claim or headline.",
-      "Ask what to verify first.",
-      "Ask which sources should confirm the story.",
-    ],
-    grounded_in_scope: true,
-    model: "local-fallback",
+    id: `${role}-${Date.now()}-${Math.random()}`,
+    role,
+    content,
+    suggestedChecks: extra.suggestedChecks || [],
+    quickActions: extra.quickActions || [],
+    model: extra.model || "",
+    intent: extra.intent || "",
+    contextNote: extra.contextNote || "",
+    analysisSnapshot: extra.analysisSnapshot || null,
+    groundedInScope: extra.groundedInScope ?? true,
   };
+}
+
+function buildAssistantWelcome(region, selectedArticle, selectedTrend) {
+  if (selectedTrend) {
+    return `TruthLens Assistant is ready. I can explain why "${selectedTrend.label}" is trending, what signals are driving it, and whether it is spreading faster than verification.`;
+  }
+
+  if (selectedArticle) {
+    return `TruthLens Assistant is ready. I can summarize "${selectedArticle.title}", explain its credibility score, compare narratives, or tell you what to verify next.`;
+  }
+
+  return `TruthLens Assistant is ready for ${regionLabels[region]}. Paste a URL, drop a text claim, or ask about a trend to start a verification conversation.`;
 }
 
 function mapAnalysisResult(result) {
@@ -203,12 +233,20 @@ function mapAnalysisResult(result) {
     title: getAnalysisTitle(result.credibility_label),
     score: result.credibility_score,
     label: result.credibility_label,
+    finalLabel: result.final_label || result.credibility_label,
     tone: getToneFromLabel(result.credibility_label),
     explanation: result.explanation,
     evidence:
       result.risk_signals && result.risk_signals.length > 0
         ? result.risk_signals
         : ["No major risk signal detected"],
+    verificationTips: result.verification_tips || [],
+    inputType: result.input_type || "text",
+    sourceScore: result.source_score || 0,
+    articleScore: result.article_score || 0,
+    corroborationScore: result.corroboration_score || 0,
+    verificationStatus: result.verification_status || "Awaiting corroboration",
+    sourceProfile: result.source_profile || null,
   };
 }
 
@@ -229,9 +267,13 @@ function buildActivityFromStats(stats, trendingCount) {
   ];
 }
 
-function ArticleCard({ article, index }) {
+function ArticleCard({ article, index, onSelect, isSelected }) {
   return (
-    <article className="article-card" style={{ animationDelay: `${index * 90}ms` }}>
+    <article
+      className={clsx("article-card", isSelected && "article-card--selected")}
+      style={{ animationDelay: `${index * 90}ms` }}
+      onClick={() => onSelect?.(article)}
+    >
       <div
         className="article-card__media"
         style={{ backgroundImage: `url('${article.image}')` }}
@@ -250,6 +292,7 @@ function ArticleCard({ article, index }) {
             href={article.url}
             target="_blank"
             rel="noreferrer"
+            onClick={(event) => event.stopPropagation()}
           >
             <ExternalLink size={18} />
           </a>
@@ -265,6 +308,15 @@ function ArticleCard({ article, index }) {
         </div>
 
         <p className="article-card__summary">{article.summary}</p>
+
+        {article.priorityTopic ? (
+          <div className="tips-row" style={{ marginTop: "-2px" }}>
+            <span className="hint-pill">Trend: {article.priorityTopic}</span>
+            {article.sourceTrustLevel ? (
+              <span className="hint-pill">Trust: {article.sourceTrustLevel}</span>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="article-card__footer">
           <div className="credibility-block">
@@ -307,96 +359,399 @@ function SummaryCard({ eyebrow, title, description, value, index, danger = false
   );
 }
 
-function AssistantPanel({
-  assistantInput,
-  setAssistantInput,
-  assistantLoading,
-  assistantError,
-  assistantReply,
-  handleAssistantAsk,
-  contextArticle,
-  className,
-}) {
+function TrendCard({ trend, index, onSelect, isSelected }) {
   return (
-    <section className={clsx("side-card", "assistant-card", className)}>
+    <article
+      className={clsx("side-card", "trend-card", isSelected && "trend-card--selected")}
+      style={{ animationDelay: `${index * 80}ms` }}
+      onClick={() => onSelect?.(trend)}
+    >
       <div className="side-card__header">
-        <div className="section-title">
-          <Sparkles size={20} />
-          <h3>Assistant</h3>
+        <div>
+          <p className="analysis-preview__eyebrow">Trend Intelligence</p>
+          <h3>{trend.label}</h3>
+        </div>
+        <span className={clsx("status-chip", trend.credibilityWarning ? "status-chip-danger" : "status-chip-soft")}>
+          {trend.credibilityWarning ? "Early Warning" : trend.freshness}
+        </span>
+      </div>
+
+      <div className="trend-card__stats">
+        <div>
+          <span>Virality</span>
+          <strong>{Math.round(trend.viralityScore)}</strong>
+        </div>
+        <div>
+          <span>Articles</span>
+          <strong>{trend.articleCount}</strong>
+        </div>
+        <div>
+          <span>Gap</span>
+          <strong>{Math.round(trend.verificationGapScore)}</strong>
         </div>
       </div>
 
-      <textarea
-        className="fact-check-input"
-        rows={6}
-        placeholder="Ask for a summary, an explanation of the score, or next verification steps..."
-        value={assistantInput}
-        onChange={(event) => setAssistantInput(event.target.value)}
-      />
-
-      <p className="hero-card__note">
-        Scope: summaries, score explanations, claim reformulation, and next verification steps.
-      </p>
-
-      {contextArticle ? (
-        <p className="hero-card__note">
-          Context article: {contextArticle.title}
-        </p>
-      ) : null}
-
-      <button
-        type="button"
-        className="primary-button"
-        onClick={handleAssistantAsk}
-        disabled={assistantLoading}
-      >
-        {assistantLoading ? "Asking..." : "Ask Assistant"}
-      </button>
-
-      {assistantError ? (
-        <p className="hero-card__note" style={{ color: "var(--danger)" }}>
-          {assistantError}
-        </p>
-      ) : null}
-
-      <div
-        className="analysis-preview"
-        style={{ "--analysis-accent": "var(--warning-strong)" }}
-      >
-        <div className="analysis-preview__header">
-          <div>
-            <p className="analysis-preview__eyebrow">TruthLens Assistant</p>
-            <strong>Guided fact-check support</strong>
-          </div>
-          <span
-            className={clsx(
-              "status-chip",
-              assistantReply.grounded_in_scope
-                ? "status-chip-warning"
-                : "status-chip-danger",
-            )}
-          >
-            {assistantReply.grounded_in_scope ? "Scoped" : "Out of scope"}
-          </span>
-        </div>
-
-        <p>{assistantReply.answer}</p>
-
-        <p className="hero-card__note">Model: {assistantReply.model}</p>
-
-        <ul className="signal-list">
-          {assistantReply.suggested_checks.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
-      </div>
+      <p className="article-card__summary">{trend.confidenceNote}</p>
 
       <div className="tips-row">
-        {assistantGuardrails.map((item) => (
-          <span key={item} className="hint-pill">
+        {trend.platformSignals.map((item) => (
+          <span key={`platform-${trend.id}-${item}`} className="hint-pill">
             {item}
           </span>
         ))}
+        {trend.sourceSignals.map((item) => (
+          <span key={`source-${trend.id}-${item}`} className="hint-pill">
+            {item}
+          </span>
+        ))}
+      </div>
+    </article>
+  );
+}
+
+function AssistantPanel({
+  region,
+  selectedArticle,
+  selectedTrend,
+  assistantMessages,
+  assistantDraft,
+  setAssistantDraft,
+  assistantLoading,
+  assistantError,
+  onSend,
+  onQuickAction,
+  threadRef,
+}) {
+  const hasMessages = assistantMessages.length > 0;
+  const quickActions = assistantMessages.at(-1)?.quickActions?.length
+    ? assistantMessages.at(-1).quickActions
+    : assistantStarterPrompts;
+
+  return (
+    <section className="assistant-shell">
+      <div className="assistant-shell__header">
+        <div className="section-title">
+          <Sparkles size={20} />
+          <h3>TruthLens Assistant</h3>
+        </div>
+        <span className="status-chip status-chip-soft">Copilot</span>
+      </div>
+
+      <div className="assistant-shell__context">
+        <span className="hint-pill">{regionLabels[region]}</span>
+        {selectedArticle ? <span className="hint-pill">Article selected</span> : null}
+        {selectedTrend ? <span className="hint-pill">Trend selected</span> : null}
+      </div>
+
+      <div className="assistant-thread" ref={threadRef}>
+        {!hasMessages ? (
+          <div className="assistant-empty">
+            <div className="assistant-empty__icon">
+              <MessageSquareText size={22} />
+            </div>
+            <h3>Verification starts here</h3>
+            <p>{buildAssistantWelcome(region, selectedArticle, selectedTrend)}</p>
+
+            <div className="tips-row" style={{ marginTop: "0" }}>
+              {assistantGuardrails.map((item) => (
+                <span key={item} className="hint-pill">
+                  {item}
+                </span>
+              ))}
+            </div>
+
+            <div className="assistant-quick-actions assistant-quick-actions--welcome">
+              {assistantStarterPrompts.map((prompt) => (
+                <button
+                  key={prompt}
+                  type="button"
+                  className="assistant-chip"
+                  onClick={() => onQuickAction(prompt)}
+                >
+                  {prompt}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="assistant-thread__messages">
+            {assistantMessages.map((message) => (
+              <div
+                key={message.id}
+                className={clsx(
+                  "assistant-message",
+                  message.role === "user" ? "assistant-message--user" : "assistant-message--assistant"
+                )}
+              >
+                <div className="assistant-message__meta">
+                  <span>{message.role === "user" ? "You" : "TruthLens Assistant"}</span>
+                  {message.model ? <span>{message.model}</span> : null}
+                </div>
+
+                <div className="assistant-message__bubble">
+                  <p>{message.content}</p>
+
+                  {message.contextNote ? (
+                    <p className="hero-card__note">{message.contextNote}</p>
+                  ) : null}
+
+                  {message.analysisSnapshot ? (
+                    <div className="assistant-analysis-card">
+                      <div className="analysis-preview__header">
+                        <div>
+                          <p className="analysis-preview__eyebrow">Verification snapshot</p>
+                          <strong>{message.analysisSnapshot.final_label}</strong>
+                        </div>
+                        <span className="status-chip status-chip-warning">
+                          {message.analysisSnapshot.final_score}%
+                        </span>
+                      </div>
+
+                      <div className="analysis-metrics">
+                        <div className="analysis-metrics__item">
+                          <span>Source</span>
+                          <strong>{message.analysisSnapshot.source_score}</strong>
+                        </div>
+                        <div className="analysis-metrics__item">
+                          <span>Article</span>
+                          <strong>{message.analysisSnapshot.article_score}</strong>
+                        </div>
+                        <div className="analysis-metrics__item">
+                          <span>Corroboration</span>
+                          <strong>{message.analysisSnapshot.corroboration_score}</strong>
+                        </div>
+                      </div>
+
+                      <p className="analysis-subnote">
+                        {message.analysisSnapshot.verification_status}
+                      </p>
+
+                      {message.analysisSnapshot.source_profile ? (
+                        <div className="tips-row">
+                          <span className="hint-pill">
+                            {message.analysisSnapshot.source_profile.source_name}
+                          </span>
+                          <span className="hint-pill">
+                            {message.analysisSnapshot.source_profile.source_type}
+                          </span>
+                          <span className="hint-pill">
+                            {message.analysisSnapshot.source_profile.risk_tier}
+                          </span>
+                        </div>
+                      ) : null}
+
+                      <p>{message.analysisSnapshot.explanation}</p>
+                    </div>
+                  ) : null}
+
+                  {message.suggestedChecks?.length ? (
+                    <ul className="signal-list">
+                      {message.suggestedChecks.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+
+            {assistantLoading ? (
+              <div className="assistant-message assistant-message--assistant">
+                <div className="assistant-message__meta">
+                  <span>TruthLens Assistant</span>
+                </div>
+                <div className="assistant-message__bubble assistant-message__bubble--loading">
+                  <p>Thinking through the verification context...</p>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        )}
+      </div>
+
+      <div className="assistant-composer">
+        <div className="assistant-quick-actions">
+          {quickActions.slice(0, 4).map((prompt) => (
+            <button
+              key={prompt}
+              type="button"
+              className="assistant-chip"
+              onClick={() => onQuickAction(prompt)}
+            >
+              {prompt}
+            </button>
+          ))}
+        </div>
+
+        {assistantError ? (
+          <p className="hero-card__note" style={{ color: "var(--danger)", margin: "6px 0 0" }}>
+            {assistantError}
+          </p>
+        ) : null}
+
+        <div className="assistant-composer__box">
+          <textarea
+            className="assistant-composer__input"
+            rows={4}
+            placeholder="Ask a question, paste a URL, drop a claim, or ask why something is trending..."
+            value={assistantDraft}
+            onChange={(event) => setAssistantDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                onSend();
+              }
+            }}
+          />
+
+          <button
+            type="button"
+            className="assistant-send"
+            onClick={onSend}
+            disabled={assistantLoading}
+            aria-label="Send message"
+          >
+            <SendHorizontal size={18} />
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ContextPanel({ selectedArticle, selectedTrend, analysisResult, onQuickAction }) {
+  return (
+    <section className="side-card context-card">
+      <div className="side-card__header">
+        <div className="section-title">
+          <Link2 size={20} />
+          <h3>Current Context</h3>
+        </div>
+      </div>
+
+      {selectedTrend ? (
+        <div className="context-block">
+          <p className="analysis-preview__eyebrow">Trend focus</p>
+          <strong>{selectedTrend.label}</strong>
+          <p className="article-card__summary">{selectedTrend.confidenceNote}</p>
+
+          <div className="tips-row">
+            <span className="hint-pill">{selectedTrend.region}</span>
+            <span className="hint-pill">{selectedTrend.freshness}</span>
+            <span className="hint-pill">Gap {Math.round(selectedTrend.verificationGapScore)}</span>
+          </div>
+
+          <div className="tips-row">
+            {selectedTrend.platformSignals.map((item) => (
+              <span key={`context-platform-${item}`} className="hint-pill">
+                {item}
+              </span>
+            ))}
+            {selectedTrend.sourceSignals.map((item) => (
+              <span key={`context-source-${item}`} className="hint-pill">
+                {item}
+              </span>
+            ))}
+          </div>
+
+          <div className="context-actions">
+            <button type="button" className="ghost-action" onClick={() => onQuickAction("Explain this trend")}>
+              Explain this trend
+            </button>
+            <button type="button" className="ghost-action" onClick={() => onQuickAction("Compare Morocco vs World narratives")}>
+              Compare narratives
+            </button>
+          </div>
+        </div>
+      ) : selectedArticle ? (
+        <div className="context-block">
+          <p className="analysis-preview__eyebrow">Article focus</p>
+          <strong>{selectedArticle.title}</strong>
+          <p className="article-card__summary">{selectedArticle.summary}</p>
+
+          <div className="tips-row">
+            <span className="hint-pill">{selectedArticle.source}</span>
+            <span className="hint-pill">{selectedArticle.badge}</span>
+            <span className="hint-pill">{selectedArticle.score}%</span>
+          </div>
+
+          <div className="context-actions">
+            <button type="button" className="ghost-action" onClick={() => onQuickAction("Summarize this article")}>
+              Summarize
+            </button>
+            <button type="button" className="ghost-action" onClick={() => onQuickAction("Why is this suspicious?")}>
+              Explain score
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="empty-state">
+          <CheckCircle2 size={28} />
+          <div>
+            <h3>No context selected</h3>
+            <p>Select an article or a trend to give the assistant stronger context.</p>
+          </div>
+        </div>
+      )}
+
+      <div className="analysis-preview" style={{ "--analysis-accent": resultStyles[analysisResult.tone]?.accent || "var(--warning-strong)" }}>
+        <div className="analysis-preview__header">
+          <div>
+            <p className="analysis-preview__eyebrow">Latest verification snapshot</p>
+            <strong>{analysisResult.finalLabel}</strong>
+          </div>
+          <span className={(resultStyles[analysisResult.tone] || resultStyles.watch).chipClass}>
+            {analysisResult.score > 0 ? formatPercent(analysisResult.score) : "--"}
+          </span>
+        </div>
+
+        <div className="analysis-metrics">
+          <div className="analysis-metrics__item">
+            <span>Source</span>
+            <strong>{analysisResult.sourceScore || "--"}</strong>
+          </div>
+          <div className="analysis-metrics__item">
+            <span>Article</span>
+            <strong>{analysisResult.articleScore || "--"}</strong>
+          </div>
+          <div className="analysis-metrics__item">
+            <span>Corroboration</span>
+            <strong>{analysisResult.corroborationScore || "--"}</strong>
+          </div>
+        </div>
+
+        <p className="analysis-subnote">{analysisResult.verificationStatus}</p>
+
+        {analysisResult.sourceProfile ? (
+          <div className="tips-row">
+            <span className="hint-pill">{analysisResult.sourceProfile.source_name}</span>
+            <span className="hint-pill">{analysisResult.sourceProfile.source_type}</span>
+            <span className="hint-pill">{analysisResult.sourceProfile.risk_tier}</span>
+            <span className="hint-pill">
+              base {analysisResult.sourceProfile.base_reliability_score}
+            </span>
+          </div>
+        ) : null}
+
+        <p>{analysisResult.explanation}</p>
+
+        {analysisResult.evidence?.length ? (
+          <ul className="signal-list">
+            {analysisResult.evidence.slice(0, 4).map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        ) : null}
+
+        {analysisResult.verificationTips?.length ? (
+          <div className="tips-row">
+            {analysisResult.verificationTips.slice(0, 3).map((item) => (
+              <span key={item} className="hint-pill">
+                {item}
+              </span>
+            ))}
+          </div>
+        ) : null}
       </div>
     </section>
   );
@@ -407,13 +762,14 @@ export function DashboardPage() {
   const [activeRegion, setActiveRegion] = useState("morocco");
   const [activeCategory, setActiveCategory] = useState("All");
   const [searchTerm, setSearchTerm] = useState("");
-  const [factCheckMode, setFactCheckMode] = useState("url");
-  const [factInput, setFactInput] = useState("");
   const [chartReady, setChartReady] = useState(false);
-  const [assistantInput, setAssistantInput] = useState("");
-  const [assistantReply, setAssistantReply] = useState(buildEmptyAssistantReply());
+  const [assistantDraft, setAssistantDraft] = useState("");
+  const [assistantMessages, setAssistantMessages] = useState([]);
   const [assistantLoading, setAssistantLoading] = useState(false);
   const [assistantError, setAssistantError] = useState("");
+  const [selectedArticle, setSelectedArticle] = useState(null);
+  const [selectedTrend, setSelectedTrend] = useState(null);
+  const assistantThreadRef = useRef(null);
 
   const [articles, setArticles] = useState([]);
   const [articleCategories, setArticleCategories] = useState(["All"]);
@@ -427,7 +783,6 @@ export function DashboardPage() {
   const [statsLoading, setStatsLoading] = useState(false);
 
   const [analysisResult, setAnalysisResult] = useState(buildEmptyAnalysis());
-  const [analyzing, setAnalyzing] = useState(false);
 
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -651,56 +1006,21 @@ export function DashboardPage() {
     loadStats();
   }, [articles.length]);
 
-  async function handleAnalyze() {
-    if (!factInput.trim()) {
-      setAnalysisResult(buildEmptyAnalysis());
-      return;
-    }
-
-    try {
-      setAnalyzing(true);
-
-      const payload =
-        factCheckMode === "url"
-          ? { url: factInput.trim() }
-          : { text: factInput.trim() };
-
-      const result = await analyzeContent(payload);
-      const mapped = mapAnalysisResult(result);
-      setAnalysisResult(mapped);
-
-      pushNotification(
-        "Analysis completed",
-        `${mapped.label} - ${mapped.score}%`,
-        mapped.label === "High Risk" || mapped.label === "Suspicious" ? "danger" : "success"
-      );
-    } catch (error) {
-      console.error("Analyze failed:", error);
-      setAnalysisResult({
-        title: "Erreur d'analyse",
-        score: 0,
-        label: "Error",
-        tone: "risk",
-        explanation: "Le backend n'a pas pu analyser cette entree.",
-        evidence: ["Erreur backend ou reponse invalide"],
-      });
-
-      pushNotification("Analysis failed", "The backend could not process this request.", "danger");
-    } finally {
-      setAnalyzing(false);
-    }
-  }
-
-  async function handleAssistantAsk() {
-    const message = assistantInput.trim();
-
+  async function sendAssistantMessage(forcedMessage = "") {
+    const message = (forcedMessage || assistantDraft).trim();
     if (!message) {
-      setAssistantError("");
-      setAssistantReply(buildEmptyAssistantReply());
       return;
     }
 
-    const contextArticle = visibleArticles[0];
+    const history = assistantMessages.slice(-6).map((item) => ({
+      role: item.role,
+      content: item.content,
+    }));
+
+    const userMessage = buildConversationMessage("user", message);
+
+    setAssistantMessages((prev) => [...prev, userMessage]);
+    setAssistantDraft("");
 
     try {
       setAssistantLoading(true);
@@ -708,34 +1028,141 @@ export function DashboardPage() {
 
       const result = await chatWithAssistant({
         message,
-        article_title: contextArticle?.title,
-        article_summary: contextArticle?.summary,
-        article_score: contextArticle?.score,
-        article_label: contextArticle?.badge,
-        article_url: contextArticle?.url,
-        article_source: contextArticle?.source,
-        article_region: contextArticle?.region,
+        history,
+        article_title: selectedArticle?.title,
+        article_summary: selectedArticle?.summary,
+        article_score: selectedArticle?.score,
+        article_label: selectedArticle?.badge,
+        article_url: selectedArticle?.url,
+        article_source: selectedArticle?.source,
+        article_region: selectedArticle?.region,
         risk_signals: analysisResult?.evidence || [],
+        selected_trend_title: selectedTrend?.label,
+        selected_trend_region: selectedTrend?.region,
+        selected_trend_freshness: selectedTrend?.freshness,
+        selected_trend_confidence_note: selectedTrend?.confidenceNote,
+        selected_trend_source_signals: selectedTrend?.sourceSignals || [],
+        selected_trend_platform_signals: selectedTrend?.platformSignals || [],
+        selected_trend_related_articles_count: selectedTrend?.articleCount,
+        selected_trend_verification_gap_score: selectedTrend?.verificationGapScore,
+        region_focus: regionLabels[activeRegion],
+        active_view: activeNav,
+        morocco_trends: trendingTopics
+          .filter((topic) => topic.region === "morocco")
+          .slice(0, 6)
+          .map((topic) => topic.label),
+        world_trends: trendingTopics
+          .filter((topic) => topic.region === "world")
+          .slice(0, 6)
+          .map((topic) => topic.label),
       });
 
-      setAssistantReply(result);
-      pushNotification("Assistant ready", "The assistant returned a guided response.", "info");
+      const assistantMessage = buildConversationMessage("assistant", result.answer, {
+        suggestedChecks: result.suggested_checks,
+        quickActions: result.quick_actions,
+        model: result.model,
+        intent: result.intent,
+        contextNote: result.context_note,
+        analysisSnapshot: result.analysis_snapshot,
+        groundedInScope: result.grounded_in_scope,
+      });
+
+      setAssistantMessages((prev) => [...prev, assistantMessage]);
+
+      if (result.analysis_snapshot) {
+        setAnalysisResult(
+          mapAnalysisResult({
+            credibility_score: result.analysis_snapshot.credibility_score,
+            credibility_label: result.analysis_snapshot.credibility_label,
+            source_score: result.analysis_snapshot.source_score,
+            article_score: result.analysis_snapshot.article_score,
+            corroboration_score: result.analysis_snapshot.corroboration_score,
+            final_score: result.analysis_snapshot.final_score,
+            final_label: result.analysis_snapshot.final_label,
+            verification_status: result.analysis_snapshot.verification_status,
+            explanation: result.analysis_snapshot.explanation,
+            risk_signals: result.analysis_snapshot.risk_signals,
+            verification_tips: result.analysis_snapshot.verification_tips,
+            input_type: result.analysis_snapshot.input_type,
+            source_profile: result.analysis_snapshot.source_profile,
+          })
+        );
+      }
+
+      pushNotification("Assistant ready", "TruthLens Assistant returned a guided response.", "info");
     } catch (error) {
       console.error("Assistant request failed:", error);
       setAssistantError("The assistant could not answer right now.");
-      setAssistantReply({
-        answer: "The assistant is temporarily unavailable.",
-        suggested_checks: [
-          "Retry the request in a moment.",
-          "Use the Fact-Check Corner while the assistant is unavailable.",
-        ],
-        grounded_in_scope: true,
-        model: "unavailable",
-      });
+
+      setAssistantMessages((prev) => [
+        ...prev,
+        buildConversationMessage(
+          "assistant",
+          "TruthLens Assistant is temporarily unavailable. Retry in a moment or select an article or trend for stronger context.",
+          {
+            suggestedChecks: [
+              "Retry the request in a moment.",
+              "Select an article and ask why it is suspicious.",
+              "Open Trending and ask for a trend explanation.",
+            ],
+            model: "unavailable",
+            intent: "error",
+            contextNote: "Assistant request failed.",
+          }
+        ),
+      ]);
+
       pushNotification("Assistant unavailable", "The assistant request failed.", "danger");
     } finally {
       setAssistantLoading(false);
     }
+  }
+
+  function handleQuickAction(prompt) {
+    if (prompt === "Analyze this URL") {
+      if (selectedArticle?.url) {
+        sendAssistantMessage(`Analyze this URL: ${selectedArticle.url}`);
+      } else {
+        setAssistantDraft("Analyze this URL: ");
+      }
+      return;
+    }
+
+    if (prompt === "Check this claim") {
+      if (selectedArticle?.title) {
+        sendAssistantMessage(`Check this claim: ${selectedArticle.title}`);
+      } else {
+        setAssistantDraft("Check this claim: ");
+      }
+      return;
+    }
+
+    if (prompt === "Summarize this article" && selectedArticle?.title) {
+      sendAssistantMessage("Summarize this article.");
+      return;
+    }
+
+    if (prompt === "Why is this suspicious?" && selectedArticle?.title) {
+      sendAssistantMessage("Why is this suspicious?");
+      return;
+    }
+
+    if (prompt === "Explain this trend" && selectedTrend?.label) {
+      sendAssistantMessage("Explain this trend.");
+      return;
+    }
+
+    if (prompt === "What should I verify next?" && selectedTrend?.label) {
+      sendAssistantMessage("What should I verify next?");
+      return;
+    }
+
+    if (prompt === "Compare Morocco vs World narratives") {
+      sendAssistantMessage("Compare Morocco vs World narratives.");
+      return;
+    }
+
+    setAssistantDraft(prompt);
   }
 
   const visibleArticles = articles.filter((article) => {
@@ -755,6 +1182,34 @@ export function DashboardPage() {
 
   const visibleTrending = trendingTopics.filter((topic) => topic.region === activeRegion);
 
+  useEffect(() => {
+    if (visibleArticles.length === 0) {
+      setSelectedArticle(null);
+      return;
+    }
+
+    if (!selectedArticle || !visibleArticles.some((article) => article.id === selectedArticle.id)) {
+      setSelectedArticle(visibleArticles[0]);
+    }
+  }, [visibleArticles, selectedArticle]);
+
+  useEffect(() => {
+    if (visibleTrending.length === 0) {
+      setSelectedTrend(null);
+      return;
+    }
+
+    if (!selectedTrend || !visibleTrending.some((trend) => trend.id === selectedTrend.id)) {
+      setSelectedTrend(visibleTrending[0]);
+    }
+  }, [visibleTrending, selectedTrend]);
+
+  useEffect(() => {
+    if (assistantThreadRef.current) {
+      assistantThreadRef.current.scrollTop = assistantThreadRef.current.scrollHeight;
+    }
+  }, [assistantMessages, assistantLoading]);
+
   const categorySummary = useMemo(() => {
     return articleCategories
       .filter((cat) => cat !== "All")
@@ -772,8 +1227,6 @@ export function DashboardPage() {
     [overviewStats, visibleTrending.length]
   );
 
-  const resultStyle = resultStyles[analysisResult.tone] || resultStyles.watch;
-
   return (
     <main className="dashboard-shell">
       <aside className="assistant-sidebar">
@@ -786,13 +1239,17 @@ export function DashboardPage() {
         </div>
 
         <AssistantPanel
-          assistantInput={assistantInput}
-          setAssistantInput={setAssistantInput}
+          region={activeRegion}
+          selectedArticle={selectedArticle}
+          selectedTrend={selectedTrend}
+          assistantMessages={assistantMessages}
+          assistantDraft={assistantDraft}
+          setAssistantDraft={setAssistantDraft}
           assistantLoading={assistantLoading}
           assistantError={assistantError}
-          assistantReply={assistantReply}
-          handleAssistantAsk={handleAssistantAsk}
-          contextArticle={visibleArticles[0]}
+          onSend={() => sendAssistantMessage()}
+          onQuickAction={handleQuickAction}
+          threadRef={assistantThreadRef}
         />
 
         <div className="sidebar-footer">
@@ -859,8 +1316,8 @@ export function DashboardPage() {
                 <p className="hero-card__kicker">Real-time credibility analysis</p>
                 <h2>Viral News Monitor</h2>
                 <p className="hero-card__subtitle">
-                  Suivi live des actualites Maroc et Monde avec badge de credibilite,
-                  categories et coin de verification.
+                  Suivi live des actualites Maroc et Monde avec badges de credibilite,
+                  trend intelligence hybride et assistant de verification integre.
                 </p>
               </div>
 
@@ -940,7 +1397,16 @@ export function DashboardPage() {
                 </div>
               ) : visibleArticles.length > 0 ? (
                 visibleArticles.map((article, index) => (
-                  <ArticleCard key={article.id} article={article} index={index} />
+                  <ArticleCard
+                    key={article.id}
+                    article={article}
+                    index={index}
+                    onSelect={(item) => {
+                      setSelectedArticle(item);
+                      setSelectedTrend(null);
+                    }}
+                    isSelected={selectedArticle?.id === article.id}
+                  />
                 ))
               ) : (
                 <div className="empty-state">
@@ -1006,14 +1472,15 @@ export function DashboardPage() {
                 </div>
               ) : visibleTrending.length > 0 ? (
                 visibleTrending.map((topic, index) => (
-                  <SummaryCard
+                  <TrendCard
                     key={topic.id}
-                    eyebrow="Trending"
-                    title={topic.label}
-                    description={`${topic.articleCount} related article(s) · freshness: ${topic.freshness}`}
-                    value={topic.value}
-                    danger={topic.credibilityWarning}
                     index={index}
+                    trend={topic}
+                    onSelect={(item) => {
+                      setSelectedTrend(item);
+                      setSelectedArticle(null);
+                    }}
+                    isSelected={selectedTrend?.id === topic.id}
                   />
                 ))
               ) : (
@@ -1183,109 +1650,48 @@ export function DashboardPage() {
       </section>
 
       <aside className="insight-panel">
-        <section className="side-card fact-check-card">
-          <div className="side-card__header">
-            <div className="section-title">
-              <Search size={20} />
-              <h3>Fact-Check Corner</h3>
-            </div>
-          </div>
-
-          <div className="fact-check-switch">
-            <button
-              type="button"
-              className={clsx(
-                "fact-check-switch__button",
-                factCheckMode === "url" && "is-active"
-              )}
-              onClick={() => setFactCheckMode("url")}
-            >
-              URL
-            </button>
-            <button
-              type="button"
-              className={clsx(
-                "fact-check-switch__button",
-                factCheckMode === "text" && "is-active"
-              )}
-              onClick={() => setFactCheckMode("text")}
-            >
-              Text
-            </button>
-          </div>
-
-          <textarea
-            className="fact-check-input"
-            rows={4}
-            placeholder={
-              factCheckMode === "url"
-                ? "Paste article URL..."
-                : "Paste headline, article or claim..."
-            }
-            value={factInput}
-            onChange={(event) => setFactInput(event.target.value)}
-          />
-
-          <button
-            type="button"
-            className="primary-button"
-            onClick={handleAnalyze}
-            disabled={analyzing}
-          >
-            {analyzing ? "Analyzing..." : "Analyze Now"}
-          </button>
-
-          <div
-            className="analysis-preview"
-            style={{ "--analysis-accent": resultStyle.accent }}
-          >
-            <div className="analysis-preview__header">
-              <div>
-                <p className="analysis-preview__eyebrow">{analysisResult.title}</p>
-                <strong>{analysisResult.label}</strong>
-              </div>
-              <span className={resultStyle.chipClass}>
-                {analysisResult.score > 0 ? formatPercent(analysisResult.score) : "--"}
-              </span>
-            </div>
-
-            <p>{analysisResult.explanation}</p>
-
-            <ul className="signal-list">
-              {analysisResult.evidence.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          </div>
-
-          <div className="tips-row">
-            {factCheckTips.map((tip) => (
-              <span key={tip} className="hint-pill">
-                {tip}
-              </span>
-            ))}
-          </div>
-        </section>
+        <ContextPanel
+          selectedArticle={selectedArticle}
+          selectedTrend={selectedTrend}
+          analysisResult={analysisResult}
+          onQuickAction={handleQuickAction}
+        />
 
         <section className="side-card">
           <div className="side-card__header">
             <div className="section-title">
               <Activity size={20} />
-              <h3>Trending Topics</h3>
+              <h3>Trend Intelligence</h3>
             </div>
           </div>
 
           <div className="topic-list">
             {visibleTrending.length > 0 ? (
               visibleTrending.slice(0, 6).map((topic) => (
-                <div key={topic.id} className="topic-row">
-                  <span>{topic.label}</span>
-                  <strong>{topic.value}</strong>
-                </div>
+                <button
+                  key={topic.id}
+                  type="button"
+                  className={clsx("topic-row", selectedTrend?.id === topic.id && "topic-row--selected")}
+                  onClick={() => {
+                    setSelectedTrend(topic);
+                    setSelectedArticle(null);
+                  }}
+                >
+                  <div className="topic-row__content">
+                    <span>{topic.label}</span>
+                    <small>
+                      {topic.articleCount} related article(s) - {topic.freshness}
+                    </small>
+                  </div>
+                  <strong>{Math.round(topic.viralityScore)}</strong>
+                </button>
               ))
             ) : (
               <div className="topic-row">
-                <span>No live trends</span>
+                <div className="topic-row__content">
+                  <span>No live trends</span>
+                  <small>TruthLens has no strong trend cluster for this region yet.</small>
+                </div>
                 <strong>--</strong>
               </div>
             )}

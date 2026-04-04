@@ -18,6 +18,19 @@ class NewsItem(BaseModel):
     source_trust_level: Optional[str] = None
     language: Optional[str] = None
     batch_label: Optional[str] = None
+    provider_name: Optional[str] = None
+    source_domain: Optional[str] = None
+    priority_topic: Optional[str] = None
+    priority_score: Optional[float] = None
+    trend_score: Optional[float] = None
+    coverage_score: Optional[float] = None
+    ranking_score: Optional[float] = None
+    is_priority: Optional[bool] = None
+    is_conflict: Optional[bool] = None
+    source_score: Optional[int] = None
+    article_score: Optional[int] = None
+    corroboration_score: Optional[int] = None
+    verification_status: Optional[str] = None
 
 
 class AnalyzeRequest(BaseModel):
@@ -32,23 +45,60 @@ class DomainAnalysis(BaseModel):
     region: str
 
 
+class SourceProfile(BaseModel):
+    source_name: str
+    domain: str
+    country: str
+    region: str
+    language: str
+    source_type: str
+    base_reliability_score: int
+    transparency_signals: List[str] = Field(default_factory=list)
+    corrections_policy_known: bool
+    ownership_known: bool
+    byline_practice_known: bool
+    fact_checker_flag: bool
+    external_reference: str
+    risk_tier: str
+    review_notes: str
+    trust_level: str
+
+
 class AnalyzeResponse(BaseModel):
     credibility_score: int
     credibility_label: str
+    source_score: int
+    article_score: int
+    corroboration_score: int
+    final_score: int
+    final_label: str
+    verification_status: str
     explanation: str
     risk_signals: List[str]
     confidence_note: str
     verification_tips: List[str]
     domain_analysis: DomainAnalysis
+    source_profile: SourceProfile
 
 
 class TrendingTopic(BaseModel):
     topic: str
+    title: Optional[str] = None
+    normalized_topic: Optional[str] = None
     region: str
     intensity: int
     article_count: int
     freshness: str
     credibility_warning: bool
+    source_signals: List[str] = Field(default_factory=list)
+    platform_signals: List[str] = Field(default_factory=list)
+    related_articles_count: int = 0
+    recency_score: float = 0
+    virality_score: float = 0
+    verification_score: float = 0
+    verification_gap_score: float = 0
+    freshness_label: Optional[str] = None
+    confidence_note: Optional[str] = None
 
 
 class RefreshLog(BaseModel):
@@ -105,6 +155,35 @@ class ChatRequest(BaseModel):
     article_source: Optional[str] = None
     article_region: Optional[str] = None
     risk_signals: List[str] = Field(default_factory=list)
+    selected_trend_title: Optional[str] = None
+    selected_trend_region: Optional[str] = None
+    selected_trend_freshness: Optional[str] = None
+    selected_trend_confidence_note: Optional[str] = None
+    selected_trend_source_signals: List[str] = Field(default_factory=list)
+    selected_trend_platform_signals: List[str] = Field(default_factory=list)
+    selected_trend_related_articles_count: Optional[int] = None
+    selected_trend_verification_gap_score: Optional[float] = None
+    region_focus: Optional[str] = None
+    active_view: Optional[str] = None
+    morocco_trends: List[str] = Field(default_factory=list)
+    world_trends: List[str] = Field(default_factory=list)
+    history: List[dict] = Field(default_factory=list)
+
+
+class AssistantAnalysisSnapshot(BaseModel):
+    input_type: str
+    credibility_score: int
+    credibility_label: str
+    source_score: int
+    article_score: int
+    corroboration_score: int
+    final_score: int
+    final_label: str
+    verification_status: str
+    explanation: str
+    risk_signals: List[str] = Field(default_factory=list)
+    verification_tips: List[str] = Field(default_factory=list)
+    source_profile: Optional[SourceProfile] = None
 
 
 class ChatResponse(BaseModel):
@@ -112,3 +191,7 @@ class ChatResponse(BaseModel):
     suggested_checks: List[str] = Field(default_factory=list)
     model: str
     grounded_in_scope: bool = True
+    intent: str = "general_guidance"
+    context_note: Optional[str] = None
+    quick_actions: List[str] = Field(default_factory=list)
+    analysis_snapshot: Optional[AssistantAnalysisSnapshot] = None
