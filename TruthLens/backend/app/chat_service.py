@@ -24,7 +24,18 @@ INTENT_KEYWORDS = {
     "explain_trend": ("trend", "trending", "tendance", "narrative", "viral"),
     "compare_narratives": ("compare", "difference", "morocco", "world", "maroc", "monde"),
     "next_steps": ("verify", "verification", "next", "what should i verify", "quoi verifier"),
-    "fact_check_text": ("check", "fact-check", "verify this", "is this true", "claim"),
+    "fact_check_text": (
+        "check",
+        "fact-check",
+        "verify this",
+        "is this true",
+        "claim",
+        "verifie",
+        "verifier",
+        "affirmation",
+        "rumeur",
+        "est-ce vrai",
+    ),
 }
 
 URL_PATTERN = re.compile(r"https?://\S+", re.IGNORECASE)
@@ -53,7 +64,7 @@ def build_memory_snippet() -> str:
 def detect_language(message: str) -> str:
     normalized = (message or "").strip().lower()
     if any(token in normalized for token in GREETING_PATTERNS["fr"]) or any(
-        token in normalized for token in ("maroc", "tendance", "verifier", "pourquoi")
+        token in normalized for token in ("maroc", "tendance", "verifier", "verifie", "affirmation", "pourquoi")
     ):
         return "fr"
     return "en"
@@ -112,11 +123,31 @@ def classify_intent(payload: ChatRequest) -> RoutedIntent:
 
 
 def greeting_message(language: str) -> str:
+    if language == "fr":
+        return (
+            "Bonjour! Je suis votre assistant TruthLens. Je peux vous aider a analyser une URL, "
+            "verifier une affirmation, resumer un article ou expliquer pourquoi un sujet devient tendance. "
+            "Collez simplement un lien, un texte, ou dites-moi ce que vous voulez verifier."
+        )
+
     return (
-        "Hello, I am TruthLens Assistant. I can analyze a URL, check a claim, summarize an article, "
-        "explain a credibility score, or tell you why a topic is trending. Paste a link, a text claim, "
-        "or ask what you want to verify."
+        "Hello! I am your TruthLens assistant. I can help you analyze a URL, verify a claim, "
+        "summarize an article, or explain why a topic is trending. Paste a link, a text claim, "
+        "or tell me what you want to verify."
     )
+
+
+def localize_verification_status(status: str, language: str) -> str:
+    if language != "fr":
+        return status
+
+    mapping = {
+        "Awaiting stronger corroboration": "En attente d'une corroboration plus solide",
+        "Partially corroborated": "Partiellement corrobore",
+        "Broadly corroborated": "Largement corrobore",
+        "No verification yet": "Pas encore verifie",
+    }
+    return mapping.get(status, status)
 
 
 def build_analysis_snapshot(result: dict, input_type: str) -> AssistantAnalysisSnapshot:
@@ -199,6 +230,15 @@ def build_local_answer(
         return greeting_message(routed.language)
 
     if routed.name == "fact_check_url" and analysis_snapshot:
+        if routed.language == "fr":
+            return (
+                f"Cette URL est actuellement classee {analysis_snapshot.final_label.lower()} avec un score final de "
+                f"{analysis_snapshot.final_score}/100. "
+                f"Source: {analysis_snapshot.source_score}/100, qualite de l'article: {analysis_snapshot.article_score}/100, "
+                f"corroboration: {analysis_snapshot.corroboration_score}/100. "
+                f"Le statut actuel est: {localize_verification_status(analysis_snapshot.verification_status, routed.language)}. "
+                "Considere ceci comme une aide a la verification, pas comme une verite absolue."
+            )
         return (
             f"This URL is currently labelled {analysis_snapshot.final_label.lower()} with a final score of "
             f"{analysis_snapshot.final_score}/100. "
@@ -209,6 +249,15 @@ def build_local_answer(
         )
 
     if routed.name == "fact_check_text" and analysis_snapshot:
+        if routed.language == "fr":
+            return (
+                f"Cette affirmation est actuellement evaluee a {analysis_snapshot.final_score}/100 et etiquetee "
+                f"'{analysis_snapshot.final_label}'. "
+                f"Source initiale: {analysis_snapshot.source_score}/100, qualite de l'article: {analysis_snapshot.article_score}/100, "
+                f"corroboration: {analysis_snapshot.corroboration_score}/100. "
+                f"Le statut actuel est: {localize_verification_status(analysis_snapshot.verification_status, routed.language)}. "
+                "Il faut encore verifier la source d'origine, la date et la corroboration."
+            )
         return (
             f"This claim is currently rated {analysis_snapshot.final_score}/100 and labelled "
             f"'{analysis_snapshot.final_label}'. "
@@ -219,6 +268,11 @@ def build_local_answer(
         )
 
     if routed.name == "summarize_article" and payload.article_summary:
+        if routed.language == "fr":
+            return (
+                f"Voici le resume court: {payload.article_summary} "
+                "Pour le verifier, confirmez les acteurs cites, la date, et si des sources plus solides racontent la meme histoire."
+            )
         return (
             f"Here is the short summary: {payload.article_summary} "
             "To verify it, confirm the named actors, date, and whether stronger sources tell the same story."
@@ -228,6 +282,11 @@ def build_local_answer(
         score = payload.article_score if payload.article_score is not None else analysis_snapshot.final_score
         label = payload.article_label or analysis_snapshot.final_label
         explanation = analysis_snapshot.explanation if analysis_snapshot else payload.article_summary or ""
+        if routed.language == "fr":
+            return (
+                f"L'estimation actuelle de TruthLens est de {score}/100 avec l'etiquette '{label}'. "
+                f"{'Cette estimation combine la fiabilite de la source, la qualite de l article et la corroboration.'}"
+            )
         return (
             f"The current TruthLens estimate is {score}/100 with the label '{label}'. "
             f"{explanation or 'This reflects source baseline reliability, article quality, and corroboration strength.'}"
@@ -236,15 +295,41 @@ def build_local_answer(
     if routed.name == "explain_trend" and payload.selected_trend_title:
         warning = ""
         if (payload.selected_trend_verification_gap_score or 0) >= 18:
-            warning = " It is spreading faster than strong verification, so treat it as an early-warning narrative."
+            warning = (
+                " Elle circule plus vite que sa verification solide, donc traite-la comme un signal d'alerte precoce."
+                if routed.language == "fr"
+                else " It is spreading faster than strong verification, so treat it as an early-warning narrative."
+            )
 
         signals = []
         if payload.selected_trend_platform_signals:
-            signals.append("social signals from " + ", ".join(payload.selected_trend_platform_signals[:3]))
+            signals.append(
+                (
+                    "des signaux sociaux provenant de " + ", ".join(payload.selected_trend_platform_signals[:3])
+                    if routed.language == "fr"
+                    else "social signals from " + ", ".join(payload.selected_trend_platform_signals[:3])
+                )
+            )
         if payload.selected_trend_source_signals:
-            signals.append("news reinforcement from " + ", ".join(payload.selected_trend_source_signals[:3]))
+            signals.append(
+                (
+                    "un renfort editorial venant de " + ", ".join(payload.selected_trend_source_signals[:3])
+                    if routed.language == "fr"
+                    else "news reinforcement from " + ", ".join(payload.selected_trend_source_signals[:3])
+                )
+            )
 
-        signal_text = ", ".join(signals) if signals else "available trend signals"
+        signal_text = (
+            ", ".join(signals)
+            if signals
+            else ("les signaux de tendance disponibles" if routed.language == "fr" else "available trend signals")
+        )
+        if routed.language == "fr":
+            return (
+                f"'{payload.selected_trend_title}' devient tendance dans "
+                f"{payload.selected_trend_region or payload.region_focus or 'le flux actif'} parce que TruthLens observe "
+                f"{signal_text}.{warning}"
+            )
         return (
             f"'{payload.selected_trend_title}' is trending in {payload.selected_trend_region or payload.region_focus or 'the feed'} "
             f"because TruthLens is seeing {signal_text}.{warning}"
@@ -253,6 +338,14 @@ def build_local_answer(
     if routed.name == "compare_narratives":
         morocco = ", ".join(payload.morocco_trends[:3]) or "no strong Morocco trend detected yet"
         world = ", ".join(payload.world_trends[:3]) or "no strong World trend detected yet"
+        if routed.language == "fr":
+            morocco = ", ".join(payload.morocco_trends[:3]) or "aucune forte tendance Maroc detectee pour le moment"
+            world = ", ".join(payload.world_trends[:3]) or "aucune forte tendance Monde detectee pour le moment"
+            return (
+                f"Le Maroc est actuellement domine par: {morocco}. "
+                f"Le Monde est actuellement domine par: {world}. "
+                "Compare-les en verifiant quel cote a la meilleure corroboration et le plus grand ecart de verification."
+            )
         return (
             f"Morocco is currently dominated by: {morocco}. "
             f"World coverage is currently dominated by: {world}. "
@@ -260,11 +353,21 @@ def build_local_answer(
         )
 
     if routed.name == "next_steps":
+        if routed.language == "fr":
+            return (
+                "Commencez par la source d'origine, confirmez la date de publication, recherchez les institutions ou personnes citees, "
+                "puis comparez avec au moins deux sources independantes."
+            )
         return (
             "Start with the original source, confirm the publication date, look for named institutions or officials, "
             "then compare with at least two independent sources."
         )
 
+    if routed.language == "fr":
+        return (
+            "Je peux vous aider a verifier une URL, controler une affirmation, resumer un article, "
+            "expliquer un score ou interpreter une tendance. Collez un lien ou un texte pour continuer."
+        )
     return (
         "I can help you verify a URL, check a text claim, summarize an article, explain a score, "
         "or interpret a trend. Paste a claim or select an article or trend to continue."
@@ -278,9 +381,16 @@ def build_gemini_user_prompt(
 ) -> str:
     lines = [
         f"User message: {payload.message.strip()}",
+        f"Detected response language: {'French' if routed.language == 'fr' else 'English'}",
         build_memory_snippet(),
         build_context_instructions(payload, routed.name, analysis_snapshot),
-        "Answer as TruthLens Assistant. Stay concise, explain uncertainty honestly, and propose practical next checks.",
+        (
+            "Answer in French. For greetings, start with: "
+            "'Bonjour! Je suis votre assistant TruthLens.' Then briefly explain what you can do."
+            if routed.language == "fr"
+            else "Answer in English. For greetings, briefly introduce TruthLens Assistant and what it can do."
+        ),
+        "Stay concise, explain uncertainty honestly, and propose practical next checks.",
     ]
     return "\n\n".join(lines)
 
@@ -313,8 +423,8 @@ class ChatService:
     def chat(self, payload: ChatRequest) -> ChatResponse:
         if not payload.message.strip():
             return ChatResponse(
-                answer="Type a question, a claim, or a URL and TruthLens Assistant will help you verify it.",
-                suggested_checks=["Analyze this URL", "Check this claim", "Explain this trend"],
+                answer="Posez une question, collez une URL ou une affirmation, et TruthLens Assistant vous aidera a la verifier.",
+                suggested_checks=["Analyser une URL", "Verifier une affirmation", "Expliquer une tendance"],
                 model="local-fallback",
                 grounded_in_scope=True,
                 intent="empty",
@@ -329,9 +439,9 @@ class ChatService:
             return ChatResponse(
                 answer=greeting_message(routed.language),
                 suggested_checks=[
-                    "Paste a URL to analyze.",
-                    "Paste a text claim to verify.",
-                    "Ask why a topic is trending.",
+                    "Collez une URL a analyser.",
+                    "Collez une affirmation a verifier.",
+                    "Demandez pourquoi un sujet devient tendance.",
                 ],
                 model="local-fallback",
                 grounded_in_scope=True,

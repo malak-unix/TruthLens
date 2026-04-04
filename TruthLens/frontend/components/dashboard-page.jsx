@@ -5,6 +5,7 @@ import clsx from "clsx";
 import {
   Activity,
   Bell,
+  Bot,
   CheckCircle2,
   Clock3,
   ExternalLink,
@@ -22,7 +23,7 @@ import {
   XAxis,
 } from "recharts";
 
-import { assistantStarterPrompts, navigationItems } from "../lib/mock-data";
+import { navigationItems } from "../lib/mock-data";
 
 import {
   fetchNews,
@@ -197,6 +198,12 @@ function buildConversationMessage(role, content, extra = {}) {
     id: `${role}-${Date.now()}-${Math.random()}`,
     role,
     content,
+    timestamp:
+      extra.timestamp ||
+      new Date().toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
     suggestedChecks: extra.suggestedChecks || [],
     quickActions: extra.quickActions || [],
     model: extra.model || "",
@@ -209,14 +216,14 @@ function buildConversationMessage(role, content, extra = {}) {
 
 function buildAssistantWelcome(region, selectedArticle, selectedTrend) {
   if (selectedTrend) {
-    return `TruthLens Assistant is ready. I can explain why "${selectedTrend.label}" is trending, what signals are driving it, and whether it is spreading faster than verification.`;
+    return `Bonjour! Je suis votre assistant TruthLens. Je peux vous expliquer pourquoi "${selectedTrend.label}" devient tendance et quoi verifier ensuite.`;
   }
 
   if (selectedArticle) {
-    return `TruthLens Assistant is ready. I can summarize "${selectedArticle.title}", explain its credibility score, compare narratives, or tell you what to verify next.`;
+    return "Bonjour! Je suis votre assistant TruthLens. Je peux resumer cet article, expliquer son score de credibilite et vous dire quoi verifier ensuite.";
   }
 
-  return `TruthLens Assistant is ready for ${regionLabels[region]}. Paste a URL, drop a text claim, or ask about a trend to start a verification conversation.`;
+  return "Bonjour! Je suis votre assistant TruthLens. Comment puis-je vous aider a verifier des informations aujourd'hui?";
 }
 
 function mapAnalysisResult(result) {
@@ -404,103 +411,44 @@ function AssistantPanel({
   region,
   selectedArticle,
   selectedTrend,
-  analysisResult,
   assistantMessages,
   assistantDraft,
   setAssistantDraft,
   assistantLoading,
   assistantError,
   onSend,
-  onQuickAction,
   threadRef,
 }) {
   const hasMessages = assistantMessages.length > 0;
-  const quickActions = assistantMessages.at(-1)?.quickActions?.length
-    ? assistantMessages.at(-1).quickActions
-    : assistantStarterPrompts;
 
   return (
     <section className="assistant-shell">
       <div className="assistant-shell__header">
         <div className="assistant-shell__identity">
-          <div className="assistant-shell__badge">
-            <Sparkles size={18} />
+          <div className="assistant-shell__agent-mark">
+            <Bot size={22} />
           </div>
           <div>
             <h3>Assistant TruthLens</h3>
-            <p>Online</p>
+            <p>En ligne</p>
           </div>
         </div>
       </div>
-
-      <div className="assistant-shell__context">
-        <span className="hint-pill">{regionLabels[region]}</span>
-        {selectedArticle ? <span className="hint-pill">Article selected</span> : null}
-        {selectedTrend ? <span className="hint-pill">Trend selected</span> : null}
-      </div>
-
-      {(selectedArticle || selectedTrend || analysisResult.score > 0) ? (
-        <div className="assistant-context-card">
-          <p className="analysis-preview__eyebrow">Live context</p>
-
-          {selectedTrend ? (
-            <>
-              <strong>{selectedTrend.label}</strong>
-              <p className="assistant-context-card__summary">{selectedTrend.confidenceNote}</p>
-              <div className="tips-row" style={{ marginTop: "8px" }}>
-                <span className="hint-pill">{selectedTrend.region}</span>
-                <span className="hint-pill">{selectedTrend.freshness}</span>
-                <span className="hint-pill">Gap {Math.round(selectedTrend.verificationGapScore)}</span>
-              </div>
-            </>
-          ) : null}
-
-          {!selectedTrend && selectedArticle ? (
-            <>
-              <strong>{selectedArticle.title}</strong>
-              <p className="assistant-context-card__summary">{selectedArticle.summary}</p>
-              <div className="tips-row" style={{ marginTop: "8px" }}>
-                <span className="hint-pill">{selectedArticle.source}</span>
-                <span className="hint-pill">{selectedArticle.badge}</span>
-                <span className="hint-pill">{selectedArticle.score}%</span>
-              </div>
-            </>
-          ) : null}
-
-          {analysisResult.score > 0 ? (
-            <div className="assistant-context-card__metrics">
-              <div className="analysis-metrics">
-                <div className="analysis-metrics__item">
-                  <span>Source</span>
-                  <strong>{analysisResult.sourceScore || "--"}</strong>
-                </div>
-                <div className="analysis-metrics__item">
-                  <span>Article</span>
-                  <strong>{analysisResult.articleScore || "--"}</strong>
-                </div>
-                <div className="analysis-metrics__item">
-                  <span>Corroboration</span>
-                  <strong>{analysisResult.corroborationScore || "--"}</strong>
-                </div>
-              </div>
-              <p className="analysis-subnote">{analysisResult.verificationStatus}</p>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
 
       <div className="assistant-thread" ref={threadRef}>
         <div className="assistant-thread__messages">
           {!hasMessages ? (
             <div className="assistant-message assistant-message--assistant">
               <div className="assistant-message__avatar">
-                <Sparkles size={14} />
+                <Bot size={14} />
               </div>
               <div className="assistant-message__content">
                 <div className="assistant-message__bubble">
                   <p>{buildAssistantWelcome(region, selectedArticle, selectedTrend)}</p>
                 </div>
-                <span className="assistant-message__time">Now</span>
+                <span className="assistant-message__time">
+                  {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </span>
               </div>
             </div>
           ) : null}
@@ -515,82 +463,16 @@ function AssistantPanel({
             >
               {message.role !== "user" ? (
                 <div className="assistant-message__avatar">
-                  <Sparkles size={14} />
+                  <Bot size={14} />
                 </div>
               ) : null}
 
               <div className="assistant-message__content">
-                <div className="assistant-message__meta">
-                  <span>{message.role === "user" ? "You" : "TruthLens Assistant"}</span>
-                  {message.model ? <span>{message.model}</span> : null}
-                </div>
-
                 <div className="assistant-message__bubble">
                   <p>{message.content}</p>
-
-                  {message.contextNote ? (
-                    <p className="hero-card__note">{message.contextNote}</p>
-                  ) : null}
-
-                  {message.analysisSnapshot ? (
-                    <div className="assistant-analysis-card">
-                      <div className="analysis-preview__header">
-                        <div>
-                          <p className="analysis-preview__eyebrow">Verification snapshot</p>
-                          <strong>{message.analysisSnapshot.final_label}</strong>
-                        </div>
-                        <span className="status-chip status-chip-warning">
-                          {message.analysisSnapshot.final_score}%
-                        </span>
-                      </div>
-
-                      <div className="analysis-metrics">
-                        <div className="analysis-metrics__item">
-                          <span>Source</span>
-                          <strong>{message.analysisSnapshot.source_score}</strong>
-                        </div>
-                        <div className="analysis-metrics__item">
-                          <span>Article</span>
-                          <strong>{message.analysisSnapshot.article_score}</strong>
-                        </div>
-                        <div className="analysis-metrics__item">
-                          <span>Corroboration</span>
-                          <strong>{message.analysisSnapshot.corroboration_score}</strong>
-                        </div>
-                      </div>
-
-                      <p className="analysis-subnote">
-                        {message.analysisSnapshot.verification_status}
-                      </p>
-
-                      {message.analysisSnapshot.source_profile ? (
-                        <div className="tips-row">
-                          <span className="hint-pill">
-                            {message.analysisSnapshot.source_profile.source_name}
-                          </span>
-                          <span className="hint-pill">
-                            {message.analysisSnapshot.source_profile.source_type}
-                          </span>
-                          <span className="hint-pill">
-                            {message.analysisSnapshot.source_profile.risk_tier}
-                          </span>
-                        </div>
-                      ) : null}
-
-                      <p>{message.analysisSnapshot.explanation}</p>
-                    </div>
-                  ) : null}
-
-                  {message.suggestedChecks?.length ? (
-                    <ul className="signal-list">
-                      {message.suggestedChecks.map((item) => (
-                        <li key={item}>{item}</li>
-                      ))}
-                    </ul>
-                  ) : null}
                 </div>
 
-                <span className="assistant-message__time">{message.role === "user" ? "Now" : "Assistant"}</span>
+                <span className="assistant-message__time">{message.timestamp}</span>
               </div>
             </div>
           )) : null}
@@ -598,11 +480,11 @@ function AssistantPanel({
           {assistantLoading ? (
             <div className="assistant-message assistant-message--assistant">
               <div className="assistant-message__avatar">
-                <Sparkles size={14} />
+                <Bot size={14} />
               </div>
               <div className="assistant-message__content">
                 <div className="assistant-message__bubble assistant-message__bubble--loading">
-                  <p>Thinking through the verification context...</p>
+                  <p>Je prepare la reponse...</p>
                 </div>
               </div>
             </div>
@@ -611,19 +493,6 @@ function AssistantPanel({
       </div>
 
       <div className="assistant-composer">
-        <div className="assistant-quick-actions assistant-quick-actions--welcome">
-          {quickActions.slice(0, 4).map((prompt) => (
-            <button
-              key={prompt}
-              type="button"
-              className="assistant-chip"
-              onClick={() => onQuickAction(prompt)}
-            >
-              {prompt}
-            </button>
-          ))}
-        </div>
-
         {assistantError ? (
           <p className="hero-card__note" style={{ color: "var(--danger)", margin: "6px 0 0" }}>
             {assistantError}
@@ -633,8 +502,8 @@ function AssistantPanel({
         <div className="assistant-composer__box">
           <textarea
             className="assistant-composer__input"
-            rows={4}
-            placeholder="Ask a question, paste a URL, drop a claim, or ask why something is trending..."
+            rows={1}
+            placeholder="Posez votre question..."
             value={assistantDraft}
             onChange={(event) => setAssistantDraft(event.target.value)}
             onKeyDown={(event) => {
@@ -818,7 +687,7 @@ export function DashboardPage() {
       setAssistantMessages([
         buildConversationMessage(
           "assistant",
-          "Hello, I am your TruthLens assistant. How can I help you verify information today?"
+          "Bonjour! Je suis votre assistant TruthLens. Comment puis-je vous aider a verifier des informations aujourd'hui?"
         ),
       ]);
     }
@@ -1003,80 +872,27 @@ export function DashboardPage() {
         );
       }
 
-      pushNotification("Assistant ready", "TruthLens Assistant returned a guided response.", "info");
+      pushNotification("Assistant pret", "TruthLens Assistant a repondu.", "info");
     } catch (error) {
       console.error("Assistant request failed:", error);
-      setAssistantError("The assistant could not answer right now.");
+      setAssistantError("L'assistant ne peut pas repondre pour le moment.");
 
       setAssistantMessages((prev) => [
         ...prev,
         buildConversationMessage(
           "assistant",
-          "TruthLens Assistant is temporarily unavailable. Retry in a moment or select an article or trend for stronger context.",
+          "Je ne peux pas repondre pour le moment. Reessayez dans un instant ou selectionnez un article pour me donner plus de contexte.",
           {
-            suggestedChecks: [
-              "Retry the request in a moment.",
-              "Select an article and ask why it is suspicious.",
-              "Open Trending and ask for a trend explanation.",
-            ],
             model: "unavailable",
             intent: "error",
-            contextNote: "Assistant request failed.",
           }
         ),
       ]);
 
-      pushNotification("Assistant unavailable", "The assistant request failed.", "danger");
+      pushNotification("Assistant indisponible", "La requete assistant a echoue.", "danger");
     } finally {
       setAssistantLoading(false);
     }
-  }
-
-  function handleQuickAction(prompt) {
-    if (prompt === "Analyze this URL") {
-      if (selectedArticle?.url) {
-        sendAssistantMessage(`Analyze this URL: ${selectedArticle.url}`);
-      } else {
-        setAssistantDraft("Analyze this URL: ");
-      }
-      return;
-    }
-
-    if (prompt === "Check this claim") {
-      if (selectedArticle?.title) {
-        sendAssistantMessage(`Check this claim: ${selectedArticle.title}`);
-      } else {
-        setAssistantDraft("Check this claim: ");
-      }
-      return;
-    }
-
-    if (prompt === "Summarize this article" && selectedArticle?.title) {
-      sendAssistantMessage("Summarize this article.");
-      return;
-    }
-
-    if (prompt === "Why is this suspicious?" && selectedArticle?.title) {
-      sendAssistantMessage("Why is this suspicious?");
-      return;
-    }
-
-    if (prompt === "Explain this trend" && selectedTrend?.label) {
-      sendAssistantMessage("Explain this trend.");
-      return;
-    }
-
-    if (prompt === "What should I verify next?" && selectedTrend?.label) {
-      sendAssistantMessage("What should I verify next?");
-      return;
-    }
-
-    if (prompt === "Compare Morocco vs World narratives") {
-      sendAssistantMessage("Compare Morocco vs World narratives.");
-      return;
-    }
-
-    setAssistantDraft(prompt);
   }
 
   const visibleArticles = articles.filter((article) => {
@@ -1148,7 +964,6 @@ export function DashboardPage() {
           <div className="brand-mark__logo">T</div>
           <div>
             <h1>TruthLens</h1>
-            <p>Monitoring studio</p>
           </div>
         </div>
 
@@ -1156,14 +971,12 @@ export function DashboardPage() {
           region={activeRegion}
           selectedArticle={selectedArticle}
           selectedTrend={selectedTrend}
-          analysisResult={analysisResult}
           assistantMessages={assistantMessages}
           assistantDraft={assistantDraft}
           setAssistantDraft={setAssistantDraft}
           assistantLoading={assistantLoading}
           assistantError={assistantError}
           onSend={() => sendAssistantMessage()}
-          onQuickAction={handleQuickAction}
           threadRef={assistantThreadRef}
         />
 

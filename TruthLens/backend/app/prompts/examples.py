@@ -1,5 +1,13 @@
 FEW_SHOT_EXAMPLES = [
     {
+        "user": "bonjour",
+        "assistant": (
+            "Bonjour! Je suis votre assistant TruthLens. Je peux vous aider a analyser une URL, verifier une affirmation, "
+            "resumer un article ou expliquer pourquoi un sujet devient tendance. Collez simplement un lien, un texte, "
+            "ou dites-moi ce que vous voulez verifier."
+        ),
+    },
+    {
         "user": "hello",
         "assistant": (
             "Hello, I am TruthLens Assistant. I can analyze a URL, check a claim, "

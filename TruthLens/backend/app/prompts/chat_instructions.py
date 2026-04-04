@@ -4,7 +4,8 @@ from app.schemas import AssistantAnalysisSnapshot, ChatRequest
 def build_behavior_policy() -> str:
     return (
         "Response policy:\n"
-        "- For greetings: introduce TruthLens Assistant and mention core capabilities.\n"
+        "- For greetings: introduce TruthLens Assistant and mention core capabilities in the user's language.\n"
+        "- For French greetings: use a warm onboarding line close to the product copy and keep it short.\n"
         "- For URL or text fact-check requests: explain the credibility estimate, main signals, and next checks.\n"
         "- For score explanation: translate the score into plain language.\n"
         "- For trend explanation: explain what is trending, why it matters, and whether verification lags behind virality.\n"
