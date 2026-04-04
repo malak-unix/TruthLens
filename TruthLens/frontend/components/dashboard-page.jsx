@@ -8,8 +8,6 @@ import {
   CheckCircle2,
   Clock3,
   ExternalLink,
-  Link2,
-  MessageSquareText,
   Search,
   SendHorizontal,
   Sparkles,
@@ -56,13 +54,6 @@ const resultStyles = {
     chipClass: "status-chip status-chip-danger",
   },
 };
-
-const assistantGuardrails = [
-  "Summarize a claim",
-  "Explain a score",
-  "Rephrase a claim",
-  "Suggest verification steps",
-];
 
 function formatPercent(score) {
   return `${score}%`;
@@ -413,6 +404,7 @@ function AssistantPanel({
   region,
   selectedArticle,
   selectedTrend,
+  analysisResult,
   assistantMessages,
   assistantDraft,
   setAssistantDraft,
@@ -430,11 +422,15 @@ function AssistantPanel({
   return (
     <section className="assistant-shell">
       <div className="assistant-shell__header">
-        <div className="section-title">
-          <Sparkles size={20} />
-          <h3>TruthLens Assistant</h3>
+        <div className="assistant-shell__identity">
+          <div className="assistant-shell__badge">
+            <Sparkles size={18} />
+          </div>
+          <div>
+            <h3>Assistant TruthLens</h3>
+            <p>Online</p>
+          </div>
         </div>
-        <span className="status-chip status-chip-soft">Copilot</span>
       </div>
 
       <div className="assistant-shell__context">
@@ -443,46 +439,87 @@ function AssistantPanel({
         {selectedTrend ? <span className="hint-pill">Trend selected</span> : null}
       </div>
 
+      {(selectedArticle || selectedTrend || analysisResult.score > 0) ? (
+        <div className="assistant-context-card">
+          <p className="analysis-preview__eyebrow">Live context</p>
+
+          {selectedTrend ? (
+            <>
+              <strong>{selectedTrend.label}</strong>
+              <p className="assistant-context-card__summary">{selectedTrend.confidenceNote}</p>
+              <div className="tips-row" style={{ marginTop: "8px" }}>
+                <span className="hint-pill">{selectedTrend.region}</span>
+                <span className="hint-pill">{selectedTrend.freshness}</span>
+                <span className="hint-pill">Gap {Math.round(selectedTrend.verificationGapScore)}</span>
+              </div>
+            </>
+          ) : null}
+
+          {!selectedTrend && selectedArticle ? (
+            <>
+              <strong>{selectedArticle.title}</strong>
+              <p className="assistant-context-card__summary">{selectedArticle.summary}</p>
+              <div className="tips-row" style={{ marginTop: "8px" }}>
+                <span className="hint-pill">{selectedArticle.source}</span>
+                <span className="hint-pill">{selectedArticle.badge}</span>
+                <span className="hint-pill">{selectedArticle.score}%</span>
+              </div>
+            </>
+          ) : null}
+
+          {analysisResult.score > 0 ? (
+            <div className="assistant-context-card__metrics">
+              <div className="analysis-metrics">
+                <div className="analysis-metrics__item">
+                  <span>Source</span>
+                  <strong>{analysisResult.sourceScore || "--"}</strong>
+                </div>
+                <div className="analysis-metrics__item">
+                  <span>Article</span>
+                  <strong>{analysisResult.articleScore || "--"}</strong>
+                </div>
+                <div className="analysis-metrics__item">
+                  <span>Corroboration</span>
+                  <strong>{analysisResult.corroborationScore || "--"}</strong>
+                </div>
+              </div>
+              <p className="analysis-subnote">{analysisResult.verificationStatus}</p>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="assistant-thread" ref={threadRef}>
-        {!hasMessages ? (
-          <div className="assistant-empty">
-            <div className="assistant-empty__icon">
-              <MessageSquareText size={22} />
+        <div className="assistant-thread__messages">
+          {!hasMessages ? (
+            <div className="assistant-message assistant-message--assistant">
+              <div className="assistant-message__avatar">
+                <Sparkles size={14} />
+              </div>
+              <div className="assistant-message__content">
+                <div className="assistant-message__bubble">
+                  <p>{buildAssistantWelcome(region, selectedArticle, selectedTrend)}</p>
+                </div>
+                <span className="assistant-message__time">Now</span>
+              </div>
             </div>
-            <h3>Verification starts here</h3>
-            <p>{buildAssistantWelcome(region, selectedArticle, selectedTrend)}</p>
+          ) : null}
 
-            <div className="tips-row" style={{ marginTop: "0" }}>
-              {assistantGuardrails.map((item) => (
-                <span key={item} className="hint-pill">
-                  {item}
-                </span>
-              ))}
-            </div>
+          {hasMessages ? assistantMessages.map((message) => (
+            <div
+              key={message.id}
+              className={clsx(
+                "assistant-message",
+                message.role === "user" ? "assistant-message--user" : "assistant-message--assistant"
+              )}
+            >
+              {message.role !== "user" ? (
+                <div className="assistant-message__avatar">
+                  <Sparkles size={14} />
+                </div>
+              ) : null}
 
-            <div className="assistant-quick-actions assistant-quick-actions--welcome">
-              {assistantStarterPrompts.map((prompt) => (
-                <button
-                  key={prompt}
-                  type="button"
-                  className="assistant-chip"
-                  onClick={() => onQuickAction(prompt)}
-                >
-                  {prompt}
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <div className="assistant-thread__messages">
-            {assistantMessages.map((message) => (
-              <div
-                key={message.id}
-                className={clsx(
-                  "assistant-message",
-                  message.role === "user" ? "assistant-message--user" : "assistant-message--assistant"
-                )}
-              >
+              <div className="assistant-message__content">
                 <div className="assistant-message__meta">
                   <span>{message.role === "user" ? "You" : "TruthLens Assistant"}</span>
                   {message.model ? <span>{message.model}</span> : null}
@@ -552,25 +589,29 @@ function AssistantPanel({
                     </ul>
                   ) : null}
                 </div>
-              </div>
-            ))}
 
-            {assistantLoading ? (
-              <div className="assistant-message assistant-message--assistant">
-                <div className="assistant-message__meta">
-                  <span>TruthLens Assistant</span>
-                </div>
+                <span className="assistant-message__time">{message.role === "user" ? "Now" : "Assistant"}</span>
+              </div>
+            </div>
+          )) : null}
+
+          {assistantLoading ? (
+            <div className="assistant-message assistant-message--assistant">
+              <div className="assistant-message__avatar">
+                <Sparkles size={14} />
+              </div>
+              <div className="assistant-message__content">
                 <div className="assistant-message__bubble assistant-message__bubble--loading">
                   <p>Thinking through the verification context...</p>
                 </div>
               </div>
-            ) : null}
-          </div>
-        )}
+            </div>
+          ) : null}
+        </div>
       </div>
 
       <div className="assistant-composer">
-        <div className="assistant-quick-actions">
+        <div className="assistant-quick-actions assistant-quick-actions--welcome">
           {quickActions.slice(0, 4).map((prompt) => (
             <button
               key={prompt}
@@ -614,144 +655,6 @@ function AssistantPanel({
             <SendHorizontal size={18} />
           </button>
         </div>
-      </div>
-    </section>
-  );
-}
-
-function ContextPanel({ selectedArticle, selectedTrend, analysisResult, onQuickAction }) {
-  return (
-    <section className="side-card context-card">
-      <div className="side-card__header">
-        <div className="section-title">
-          <Link2 size={20} />
-          <h3>Current Context</h3>
-        </div>
-      </div>
-
-      {selectedTrend ? (
-        <div className="context-block">
-          <p className="analysis-preview__eyebrow">Trend focus</p>
-          <strong>{selectedTrend.label}</strong>
-          <p className="article-card__summary">{selectedTrend.confidenceNote}</p>
-
-          <div className="tips-row">
-            <span className="hint-pill">{selectedTrend.region}</span>
-            <span className="hint-pill">{selectedTrend.freshness}</span>
-            <span className="hint-pill">Gap {Math.round(selectedTrend.verificationGapScore)}</span>
-          </div>
-
-          <div className="tips-row">
-            {selectedTrend.platformSignals.map((item) => (
-              <span key={`context-platform-${item}`} className="hint-pill">
-                {item}
-              </span>
-            ))}
-            {selectedTrend.sourceSignals.map((item) => (
-              <span key={`context-source-${item}`} className="hint-pill">
-                {item}
-              </span>
-            ))}
-          </div>
-
-          <div className="context-actions">
-            <button type="button" className="ghost-action" onClick={() => onQuickAction("Explain this trend")}>
-              Explain this trend
-            </button>
-            <button type="button" className="ghost-action" onClick={() => onQuickAction("Compare Morocco vs World narratives")}>
-              Compare narratives
-            </button>
-          </div>
-        </div>
-      ) : selectedArticle ? (
-        <div className="context-block">
-          <p className="analysis-preview__eyebrow">Article focus</p>
-          <strong>{selectedArticle.title}</strong>
-          <p className="article-card__summary">{selectedArticle.summary}</p>
-
-          <div className="tips-row">
-            <span className="hint-pill">{selectedArticle.source}</span>
-            <span className="hint-pill">{selectedArticle.badge}</span>
-            <span className="hint-pill">{selectedArticle.score}%</span>
-          </div>
-
-          <div className="context-actions">
-            <button type="button" className="ghost-action" onClick={() => onQuickAction("Summarize this article")}>
-              Summarize
-            </button>
-            <button type="button" className="ghost-action" onClick={() => onQuickAction("Why is this suspicious?")}>
-              Explain score
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="empty-state">
-          <CheckCircle2 size={28} />
-          <div>
-            <h3>No context selected</h3>
-            <p>Select an article or a trend to give the assistant stronger context.</p>
-          </div>
-        </div>
-      )}
-
-      <div className="analysis-preview" style={{ "--analysis-accent": resultStyles[analysisResult.tone]?.accent || "var(--warning-strong)" }}>
-        <div className="analysis-preview__header">
-          <div>
-            <p className="analysis-preview__eyebrow">Latest verification snapshot</p>
-            <strong>{analysisResult.finalLabel}</strong>
-          </div>
-          <span className={(resultStyles[analysisResult.tone] || resultStyles.watch).chipClass}>
-            {analysisResult.score > 0 ? formatPercent(analysisResult.score) : "--"}
-          </span>
-        </div>
-
-        <div className="analysis-metrics">
-          <div className="analysis-metrics__item">
-            <span>Source</span>
-            <strong>{analysisResult.sourceScore || "--"}</strong>
-          </div>
-          <div className="analysis-metrics__item">
-            <span>Article</span>
-            <strong>{analysisResult.articleScore || "--"}</strong>
-          </div>
-          <div className="analysis-metrics__item">
-            <span>Corroboration</span>
-            <strong>{analysisResult.corroborationScore || "--"}</strong>
-          </div>
-        </div>
-
-        <p className="analysis-subnote">{analysisResult.verificationStatus}</p>
-
-        {analysisResult.sourceProfile ? (
-          <div className="tips-row">
-            <span className="hint-pill">{analysisResult.sourceProfile.source_name}</span>
-            <span className="hint-pill">{analysisResult.sourceProfile.source_type}</span>
-            <span className="hint-pill">{analysisResult.sourceProfile.risk_tier}</span>
-            <span className="hint-pill">
-              base {analysisResult.sourceProfile.base_reliability_score}
-            </span>
-          </div>
-        ) : null}
-
-        <p>{analysisResult.explanation}</p>
-
-        {analysisResult.evidence?.length ? (
-          <ul className="signal-list">
-            {analysisResult.evidence.slice(0, 4).map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-        ) : null}
-
-        {analysisResult.verificationTips?.length ? (
-          <div className="tips-row">
-            {analysisResult.verificationTips.slice(0, 3).map((item) => (
-              <span key={item} className="hint-pill">
-                {item}
-              </span>
-            ))}
-          </div>
-        ) : null}
       </div>
     </section>
   );
@@ -909,6 +812,17 @@ export function DashboardPage() {
       setAuthToken(savedToken);
     }
   }, []);
+
+  useEffect(() => {
+    if (assistantMessages.length === 0) {
+      setAssistantMessages([
+        buildConversationMessage(
+          "assistant",
+          "Hello, I am your TruthLens assistant. How can I help you verify information today?"
+        ),
+      ]);
+    }
+  }, [assistantMessages.length]);
 
   useEffect(() => {
     async function loadCurrentUser() {
@@ -1242,6 +1156,7 @@ export function DashboardPage() {
           region={activeRegion}
           selectedArticle={selectedArticle}
           selectedTrend={selectedTrend}
+          analysisResult={analysisResult}
           assistantMessages={assistantMessages}
           assistantDraft={assistantDraft}
           setAssistantDraft={setAssistantDraft}
@@ -1414,8 +1329,8 @@ export function DashboardPage() {
                   <div>
                     <h3>No results for this filter set</h3>
                     <p>
-                      Essayez une autre recherche ou revenez a la vue All pour
-                      poursuivre l'exploration.
+                      Try a different search or switch back to the All view to
+                      keep exploring.
                     </p>
                   </div>
                 </div>
@@ -1648,114 +1563,6 @@ export function DashboardPage() {
           </>
         )}
       </section>
-
-      <aside className="insight-panel">
-        <ContextPanel
-          selectedArticle={selectedArticle}
-          selectedTrend={selectedTrend}
-          analysisResult={analysisResult}
-          onQuickAction={handleQuickAction}
-        />
-
-        <section className="side-card">
-          <div className="side-card__header">
-            <div className="section-title">
-              <Activity size={20} />
-              <h3>Trend Intelligence</h3>
-            </div>
-          </div>
-
-          <div className="topic-list">
-            {visibleTrending.length > 0 ? (
-              visibleTrending.slice(0, 6).map((topic) => (
-                <button
-                  key={topic.id}
-                  type="button"
-                  className={clsx("topic-row", selectedTrend?.id === topic.id && "topic-row--selected")}
-                  onClick={() => {
-                    setSelectedTrend(topic);
-                    setSelectedArticle(null);
-                  }}
-                >
-                  <div className="topic-row__content">
-                    <span>{topic.label}</span>
-                    <small>
-                      {topic.articleCount} related article(s) - {topic.freshness}
-                    </small>
-                  </div>
-                  <strong>{Math.round(topic.viralityScore)}</strong>
-                </button>
-              ))
-            ) : (
-              <div className="topic-row">
-                <div className="topic-row__content">
-                  <span>No live trends</span>
-                  <small>TruthLens has no strong trend cluster for this region yet.</small>
-                </div>
-                <strong>--</strong>
-              </div>
-            )}
-          </div>
-        </section>
-
-        <section className="side-card activity-card">
-          <div className="side-card__header">
-            <div className="section-title">
-              <Activity size={20} />
-              <h3>Today&apos;s Activity</h3>
-            </div>
-          </div>
-
-          <div className="activity-chart">
-            {chartReady ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={activity}>
-                  <defs>
-                    <linearGradient id="activityGradient" x1="0" x2="0" y1="0" y2="1">
-                      <stop offset="5%" stopColor="#ff3030" stopOpacity={0.35} />
-                      <stop offset="95%" stopColor="#ff3030" stopOpacity={0.04} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="4 4" vertical={false} stroke="#edf1f6" />
-                  <XAxis
-                    dataKey="time"
-                    tickLine={false}
-                    axisLine={false}
-                    tick={{ fill: "#738197", fontSize: 12 }}
-                  />
-                  <Tooltip />
-                  <Area
-                    dataKey="checks"
-                    type="monotone"
-                    stroke="#ea1d2c"
-                    strokeWidth={2}
-                    fill="url(#activityGradient)"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="activity-placeholder">
-                <span />
-                <span />
-                <span />
-                <span />
-                <span />
-              </div>
-            )}
-          </div>
-
-          <div className="activity-summary">
-            <div>
-              <strong>{overviewStats?.total_articles ?? articles.length}</strong>
-              <span>checks analysed today</span>
-            </div>
-            <div>
-              <strong>{overviewStats?.suspicious_count ?? 0}</strong>
-              <span>stories flagged for review</span>
-            </div>
-          </div>
-        </section>
-      </aside>
 
       {showNotifications && (
         <>

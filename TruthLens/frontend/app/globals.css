@@ -46,18 +46,18 @@ button {
 
 .dashboard-shell {
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr) 360px;
+  grid-template-columns: 380px minmax(0, 1fr);
   min-height: 100vh;
 }
 
 .assistant-sidebar {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  padding: 28px 20px;
-  background: rgba(255, 255, 255, 0.72);
+  gap: 0;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.82);
   border-right: 1px solid var(--border);
-  backdrop-filter: blur(22px);
+  backdrop-filter: blur(18px);
   position: sticky;
   top: 0;
   align-self: start;
@@ -69,33 +69,67 @@ button {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
-  gap: 14px;
-  padding: 18px;
-  border: 1px solid var(--border);
-  border-radius: 26px;
-  background: rgba(255, 255, 255, 0.88);
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(18px);
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  gap: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 .assistant-shell__header,
 .assistant-shell__context {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   flex-wrap: wrap;
+  padding: 22px 24px;
+}
+
+.assistant-shell__header {
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+}
+
+.assistant-shell__identity {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.assistant-shell__identity h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  letter-spacing: -0.03em;
+}
+
+.assistant-shell__identity p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.assistant-shell__badge {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: rgba(239, 29, 41, 0.1);
+  color: var(--danger);
 }
 
 .assistant-thread {
   min-height: 0;
   overflow-y: auto;
-  padding-right: 4px;
+  padding: 20px 24px;
+  background: rgba(255, 255, 255, 0.44);
 }
 
 .assistant-thread__messages {
   display: grid;
-  gap: 14px;
+  gap: 18px;
 }
 
 .assistant-empty {
@@ -127,12 +161,13 @@ button {
 }
 
 .assistant-message {
-  display: grid;
-  gap: 6px;
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
 }
 
 .assistant-message--user {
-  justify-items: end;
+  justify-content: flex-end;
 }
 
 .assistant-message__meta {
@@ -140,14 +175,30 @@ button {
   gap: 10px;
   color: #7a8799;
   font-size: 0.8rem;
+  margin-bottom: 6px;
+}
+
+.assistant-message__avatar {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: rgba(239, 29, 41, 0.1);
+  color: var(--danger);
+  flex-shrink: 0;
+}
+
+.assistant-message__content {
+  max-width: 82%;
 }
 
 .assistant-message__bubble {
   --analysis-accent: var(--danger);
   width: 100%;
-  padding: 14px 16px;
-  border-radius: 20px;
-  background: #f6f8fb;
+  padding: 16px 18px;
+  border-radius: 26px;
+  background: #f3f6fb;
   border: 1px solid rgba(12, 23, 40, 0.06);
 }
 
@@ -155,7 +206,13 @@ button {
   background: linear-gradient(135deg, #ff2d35, #e30e17);
   color: white;
   border-color: transparent;
-  max-width: 92%;
+}
+
+.assistant-message__time {
+  display: inline-block;
+  margin-top: 8px;
+  color: #8b96a7;
+  font-size: 0.82rem;
 }
 
 .assistant-message__bubble p {
@@ -178,6 +235,9 @@ button {
 .assistant-composer {
   display: grid;
   gap: 12px;
+  padding: 18px 24px 22px;
+  border-top: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.92);
 }
 
 .assistant-quick-actions {
@@ -209,15 +269,16 @@ button {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
-  align-items: end;
+  align-items: center;
 }
 
 .assistant-composer__input {
   width: 100%;
-  min-height: 92px;
-  padding: 16px 18px;
+  min-height: 64px;
+  max-height: 120px;
+  padding: 18px 22px;
   border: 1px solid var(--border);
-  border-radius: 20px;
+  border-radius: 999px;
   background: white;
   color: var(--text);
   resize: none;
@@ -245,6 +306,8 @@ button {
   display: flex;
   align-items: center;
   gap: 14px;
+  padding: 28px 24px 22px;
+  border-bottom: 1px solid var(--border);
 }
 
 .brand-mark__logo {
@@ -319,6 +382,7 @@ button {
 .sidebar-footer {
   color: var(--muted);
   font-size: 0.95rem;
+  padding: 14px 24px 20px;
 }
 
 .sidebar-footer p {
@@ -326,7 +390,7 @@ button {
 }
 
 .main-panel {
-  padding: 14px 18px 24px;
+  padding: 14px 28px 24px;
 }
 
 .topbar {
@@ -630,13 +694,6 @@ button {
   color: var(--danger);
 }
 
-.insight-panel {
-  display: grid;
-  gap: 18px;
-  align-content: start;
-  padding: 18px;
-}
-
 .side-card {
   padding: 20px;
 }
@@ -664,19 +721,29 @@ button {
   border-color: rgba(239, 29, 41, 0.14);
 }
 
-.context-card {
-  border-color: rgba(86, 138, 255, 0.14);
-}
-
-.context-block {
+.assistant-context-card {
   display: grid;
-  gap: 12px;
+  gap: 10px;
+  margin: 18px 24px 0;
+  padding: 16px 18px;
+  border-radius: 22px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.84);
 }
 
-.context-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+.assistant-context-card strong {
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.assistant-context-card__summary {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.assistant-context-card__metrics {
+  margin-top: 2px;
 }
 
 .ghost-action {
@@ -1035,7 +1102,7 @@ button {
 
 @media (max-width: 1380px) {
   .dashboard-shell {
-    grid-template-columns: 290px minmax(0, 1fr) 320px;
+    grid-template-columns: 340px minmax(0, 1fr);
   }
 
   .article-card h3 {
@@ -1045,12 +1112,7 @@ button {
 
 @media (max-width: 1180px) {
   .dashboard-shell {
-    grid-template-columns: 290px minmax(0, 1fr);
-  }
-
-  .insight-panel {
-    grid-column: 1 / -1;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: 320px minmax(0, 1fr);
   }
 }
 
@@ -1060,7 +1122,6 @@ button {
   }
 
   .assistant-sidebar {
-    gap: 24px;
     border-right: 0;
     border-bottom: 1px solid var(--border);
     position: static;
@@ -1076,15 +1137,10 @@ button {
   .content-toolbar {
     justify-content: flex-start;
   }
-
-  .insight-panel {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 720px) {
   .main-panel,
-  .insight-panel,
   .assistant-sidebar {
     padding: 16px;
   }
@@ -1104,14 +1160,6 @@ button {
 
   .article-card {
     grid-template-columns: 1fr;
-  }
-
-  .assistant-composer__box {
-    grid-template-columns: 1fr;
-  }
-
-  .assistant-send {
-    width: 100%;
   }
 
   .article-card__media {
