@@ -391,6 +391,7 @@ def build_gemini_user_prompt(
             else "Answer in English. For greetings, briefly introduce TruthLens Assistant and what it can do."
         ),
         "Stay concise, explain uncertainty honestly, and propose practical next checks.",
+        "Write the final answer as plain text only. Do not use Markdown, bold markers, backticks, headings, or bullet syntax.",
     ]
     return "\n\n".join(lines)
 
@@ -410,7 +411,22 @@ def extract_answer(data: dict) -> str:
 
     parts = candidates[0].get("content", {}).get("parts", [])
     texts = [part.get("text", "").strip() for part in parts if part.get("text")]
-    return "\n".join(item for item in texts if item).strip()
+    return sanitize_model_answer("\n".join(item for item in texts if item).strip())
+
+
+def sanitize_model_answer(text: str) -> str:
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return ""
+
+    cleaned = re.sub(r"\*\*(.*?)\*\*", r"\1", cleaned, flags=re.DOTALL)
+    cleaned = re.sub(r"__(.*?)__", r"\1", cleaned, flags=re.DOTALL)
+    cleaned = cleaned.replace("`", "")
+    cleaned = re.sub(r"^\s{0,3}#{1,6}\s*", "", cleaned, flags=re.MULTILINE)
+    cleaned = re.sub(r"^\s*[-*]\s+", "", cleaned, flags=re.MULTILINE)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    return cleaned.strip()
 
 
 class ChatService:

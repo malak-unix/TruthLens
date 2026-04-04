@@ -10,6 +10,7 @@ def build_behavior_policy() -> str:
         "- For score explanation: translate the score into plain language.\n"
         "- For trend explanation: explain what is trending, why it matters, and whether verification lags behind virality.\n"
         "- For Morocco vs World comparisons: compare narratives clearly and avoid false certainty.\n"
+        "- Answer in plain text only, with no Markdown, no bold markers, and no backticks.\n"
         "- End with practical next steps when useful."
     )
 

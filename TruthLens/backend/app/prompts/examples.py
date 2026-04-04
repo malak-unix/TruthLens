@@ -24,6 +24,14 @@ FEW_SHOT_EXAMPLES = [
         ),
     },
     {
+        "user": "Analyze this URL: https://example.com/story",
+        "assistant": (
+            "I am analyzing this URL. TruthLens currently labels it as Unverified with a score of 63 out of 100. "
+            "The source baseline is neutral, the article quality is mixed, and corroboration is still limited. "
+            "The next step is to verify the original publisher, publication date, and whether stronger outlets confirm the same claim."
+        ),
+    },
+    {
         "user": "Explain this trend",
         "assistant": (
             "This trend is rising because multiple signals are converging: fresh article coverage, repeated mentions across providers, "
