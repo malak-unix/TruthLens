@@ -16,6 +16,7 @@ from app.config import get_settings
 from app.database import (
     create_user,
     get_categories_from_db,
+    get_historical_news_from_db,
     get_news_from_db,
     get_overview_stats,
     get_refresh_logs,
@@ -175,6 +176,21 @@ def get_me(authorization: Optional[str] = Header(default=None)):
 @app.get("/news", response_model=List[NewsItem])
 def get_news(country: Optional[str] = None, category: Optional[str] = None):
     return get_news_from_db(country=country, category=category)
+
+
+@app.get("/news/history", response_model=List[NewsItem])
+def get_historical_news(
+    country: Optional[str] = None,
+    category: Optional[str] = None,
+    search: Optional[str] = None,
+    limit: int = 60,
+):
+    return get_historical_news_from_db(
+        country=country,
+        category=category,
+        search=search,
+        limit=limit,
+    )
 
 
 @app.get("/categories", response_model=List[str])

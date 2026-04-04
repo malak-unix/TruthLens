@@ -7,6 +7,8 @@ class NewsItem(BaseModel):
     title: str
     source_name: str
     published_at: str
+    fetched_at: Optional[str] = None
+    analyzed_at: Optional[str] = None
     country: str
     category: str
     url: str

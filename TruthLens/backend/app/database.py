@@ -307,26 +307,7 @@ def save_refresh_log(
     )
 
 
-def get_news_from_db(country: Optional[str] = None, category: Optional[str] = None):
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    query = "SELECT * FROM news_articles WHERE 1=1"
-    params = []
-
-    if country:
-        query += " AND lower(country) = lower(?)"
-        params.append(country)
-
-    if category and category != "All":
-        query += " AND lower(category) = lower(?)"
-        params.append(category)
-
-    query += " ORDER BY ranking_score DESC, published_at DESC LIMIT 100"
-
-    cursor.execute(query, params)
-    rows = cursor.fetchall()
-
+def _hydrate_news_rows(conn, cursor, rows):
     results = []
     needs_commit = False
 
@@ -390,6 +371,74 @@ def get_news_from_db(country: Optional[str] = None, category: Optional[str] = No
 
     if needs_commit:
         conn.commit()
+
+    return results
+
+
+def get_news_from_db(country: Optional[str] = None, category: Optional[str] = None):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    query = "SELECT * FROM news_articles WHERE 1=1"
+    params = []
+
+    if country:
+        query += " AND lower(country) = lower(?)"
+        params.append(country)
+
+    if category and category != "All":
+        query += " AND lower(category) = lower(?)"
+        params.append(category)
+
+    query += " ORDER BY ranking_score DESC, published_at DESC LIMIT 100"
+
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    results = _hydrate_news_rows(conn, cursor, rows)
+
+    conn.close()
+    return results
+
+
+def get_historical_news_from_db(
+    country: Optional[str] = None,
+    category: Optional[str] = None,
+    search: Optional[str] = None,
+    limit: int = 60,
+):
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    query = "SELECT * FROM news_articles WHERE 1=1"
+    params = []
+
+    if country:
+        query += " AND lower(country) = lower(?)"
+        params.append(country)
+
+    if category and category != "All":
+        query += " AND lower(category) = lower(?)"
+        params.append(category)
+
+    if search:
+        query += """
+            AND (
+                lower(title) LIKE lower(?)
+                OR lower(description) LIKE lower(?)
+                OR lower(source_name) LIKE lower(?)
+                OR lower(url) LIKE lower(?)
+            )
+        """
+        needle = f"%{search}%"
+        params.extend([needle, needle, needle, needle])
+
+    safe_limit = max(10, min(limit, 200))
+    query += " ORDER BY datetime(analyzed_at) DESC, datetime(fetched_at) DESC, datetime(published_at) DESC LIMIT ?"
+    params.append(safe_limit)
+
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    results = _hydrate_news_rows(conn, cursor, rows)
 
     conn.close()
     return results

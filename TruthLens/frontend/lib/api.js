@@ -30,6 +30,27 @@ export async function fetchNews(country = "", category = "") {
   return readJson(response, "Failed to fetch news");
 }
 
+export async function fetchHistoricalNews({
+  country = "",
+  category = "",
+  search = "",
+  limit = 60,
+} = {}) {
+  const params = new URLSearchParams();
+
+  if (country) params.append("country", country);
+  if (category && category !== "All") params.append("category", category);
+  if (search) params.append("search", search);
+  if (limit) params.append("limit", String(limit));
+
+  const response = await fetch(`${API_URL}/news/history?${params.toString()}`, {
+    method: "GET",
+    cache: "no-store",
+  });
+
+  return readJson(response, "Failed to fetch historical news");
+}
+
 export async function fetchCategories() {
   const response = await fetch(`${API_URL}/categories`, {
     method: "GET",

@@ -27,6 +27,7 @@ import { navigationItems } from "../lib/mock-data";
 
 import {
   fetchNews,
+  fetchHistoricalNews,
   fetchCategories,
   fetchTrending,
   fetchOverviewStats,
@@ -108,6 +109,23 @@ function formatTimeAgo(publishedAt) {
   return "Just now";
 }
 
+function formatDateTime(value) {
+  if (!value) return "Not available";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString([], {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function getCategoryImage(category) {
   const images = {
     Economy:
@@ -138,6 +156,7 @@ function mapBackendArticle(article) {
     title: article.title,
     category: article.category,
     source: article.source_name,
+    publishedAt: article.published_at,
     timeAgo: formatTimeAgo(article.published_at),
     summary: article.description,
     score: article.credibility_score,
@@ -148,6 +167,8 @@ function mapBackendArticle(article) {
     url: article.url,
     region: article.country === "ma" ? "morocco" : "world",
     explanation: article.explanation,
+    fetchedAt: article.fetched_at || "",
+    analyzedAt: article.analyzed_at || "",
     batchLabel: article.batch_label,
     sourceType: article.source_type,
     sourceTrustLevel: article.source_trust_level,
@@ -529,6 +550,80 @@ function AssistantPanel({
   );
 }
 
+function HistoricalArticleCard({ article, index, onSelect, isSelected }) {
+  return (
+    <article
+      className={clsx("article-card", "historical-card", isSelected && "article-card--selected")}
+      style={{ animationDelay: `${index * 80}ms` }}
+      onClick={() => onSelect?.(article)}
+    >
+      <div className="article-card__content">
+        <div className="article-card__header">
+          <div>
+            <p className="article-card__eyebrow">Stored Analysis</p>
+            <h3>{article.title}</h3>
+          </div>
+
+          <a
+            className="ghost-icon-button"
+            aria-label="Open historical article"
+            href={article.url}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <ExternalLink size={18} />
+          </a>
+        </div>
+
+        <div className="article-card__meta">
+          <span>{article.source}</span>
+          <span className="meta-separator">|</span>
+          <span>{article.category}</span>
+          <span className="meta-separator">|</span>
+          <span>{article.region === "morocco" ? "Morocco" : "World"}</span>
+        </div>
+
+        <p className="article-card__summary">{article.summary}</p>
+
+        <div className="analysis-preview historical-card__analysis">
+          <div className="analysis-preview__header">
+            <div>
+              <p className="analysis-preview__eyebrow">Saved credibility analysis</p>
+              <strong>{article.badge}</strong>
+            </div>
+            <span className={clsx("status-chip", article.badgeClass)}>{formatPercent(article.score)}</span>
+          </div>
+
+          <div className="analysis-metrics">
+            <div className="analysis-metrics__item">
+              <span>Source</span>
+              <strong>{article.sourceScore ?? "--"}</strong>
+            </div>
+            <div className="analysis-metrics__item">
+              <span>Article</span>
+              <strong>{article.articleScore ?? "--"}</strong>
+            </div>
+            <div className="analysis-metrics__item">
+              <span>Corroboration</span>
+              <strong>{article.corroborationScore ?? "--"}</strong>
+            </div>
+          </div>
+
+          <p>{article.explanation}</p>
+          <p className="analysis-subnote">{article.verificationStatus || "Verification status unavailable"}</p>
+        </div>
+
+        <div className="historical-card__timeline">
+          <span>Published: {formatDateTime(article.publishedAt)}</span>
+          <span>Stored: {formatDateTime(article.fetchedAt)}</span>
+          <span>Analyzed: {formatDateTime(article.analyzedAt)}</span>
+        </div>
+      </div>
+    </article>
+  );
+}
+
 export function DashboardPage() {
   const [activeNav, setActiveNav] = useState("dashboard");
   const [activeRegion, setActiveRegion] = useState("morocco");
@@ -544,9 +639,12 @@ export function DashboardPage() {
   const assistantThreadRef = useRef(null);
 
   const [articles, setArticles] = useState([]);
+  const [historicalArticles, setHistoricalArticles] = useState([]);
   const [articleCategories, setArticleCategories] = useState(["All"]);
   const [newsLoading, setNewsLoading] = useState(true);
   const [newsError, setNewsError] = useState("");
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
 
   const [trendingTopics, setTrendingTopics] = useState([]);
   const [trendingLoading, setTrendingLoading] = useState(false);
@@ -771,6 +869,32 @@ export function DashboardPage() {
 
     loadTrending();
   }, [activeRegion]);
+
+  useEffect(() => {
+    async function loadHistoricalNews() {
+      try {
+        setHistoryLoading(true);
+        setHistoryError("");
+
+        const data = await fetchHistoricalNews({
+          country: getApiCountry(activeRegion),
+          category: activeCategory === "All" ? "" : activeCategory,
+          search: deferredSearch,
+          limit: 80,
+        });
+
+        setHistoricalArticles(data.map(mapBackendArticle));
+      } catch (error) {
+        console.error("Failed to load historical news:", error);
+        setHistoricalArticles([]);
+        setHistoryError("Unable to load historical news.");
+      } finally {
+        setHistoryLoading(false);
+      }
+    }
+
+    loadHistoricalNews();
+  }, [activeRegion, activeCategory, deferredSearch]);
 
   useEffect(() => {
     async function loadStats() {
@@ -1217,6 +1341,114 @@ export function DashboardPage() {
                   <div>
                     <h3>No trending topics</h3>
                     <p>No trending topics are available for this region yet.</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {activeNav === "history" && (
+          <>
+            <section className="hero-card">
+              <div>
+                <p className="hero-card__kicker">Archive intelligence</p>
+                <h2>Historical News</h2>
+                <p className="hero-card__subtitle">
+                  Stored news from SQLite with the saved credibility analysis for each article.
+                </p>
+              </div>
+
+              <div className="hero-card__status">
+                <span className="status-chip status-chip-soft">
+                  <Sparkles size={14} />
+                  Stored analysis feed
+                </span>
+                <span className="hero-card__note">
+                  {historicalArticles.length} archived article(s) for {regionLabels[activeRegion]}
+                </span>
+              </div>
+            </section>
+
+            <div className="content-toolbar">
+              <div className="toggle-pill">
+                {Object.entries(regionLabels).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={clsx(
+                      "toggle-pill__button",
+                      activeRegion === key && "is-active"
+                    )}
+                    onClick={() => setActiveRegion(key)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="category-row" role="tablist" aria-label="Historical categories">
+                {articleCategories.map((category) => (
+                  <button
+                    key={`history-${category}`}
+                    type="button"
+                    className={clsx(
+                      "category-pill",
+                      activeCategory === category && "is-active"
+                    )}
+                    onClick={() => setActiveCategory(category)}
+                  >
+                    {category}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="content-toolbar" style={{ marginTop: "0" }}>
+              <span>
+                Search scope: {deferredSearch ? `"${deferredSearch}"` : "all stored coverage"}
+              </span>
+              <span>
+                Focus: {activeCategory === "All" ? "all categories" : activeCategory}
+              </span>
+            </div>
+
+            <div className="news-list">
+              {historyLoading ? (
+                <div className="empty-state">
+                  <CheckCircle2 size={28} />
+                  <div>
+                    <h3>Loading historical news...</h3>
+                    <p>The stored archive is loading from the backend.</p>
+                  </div>
+                </div>
+              ) : historyError ? (
+                <div className="empty-state">
+                  <CheckCircle2 size={28} />
+                  <div>
+                    <h3>Archive loading error</h3>
+                    <p>{historyError}</p>
+                  </div>
+                </div>
+              ) : historicalArticles.length > 0 ? (
+                historicalArticles.map((article, index) => (
+                  <HistoricalArticleCard
+                    key={`history-${article.id}`}
+                    article={article}
+                    index={index}
+                    onSelect={(item) => {
+                      setSelectedArticle(item);
+                      setSelectedTrend(null);
+                    }}
+                    isSelected={selectedArticle?.id === article.id}
+                  />
+                ))
+              ) : (
+                <div className="empty-state">
+                  <CheckCircle2 size={28} />
+                  <div>
+                    <h3>No historical news found</h3>
+                    <p>Try another search or switch region/category to explore the stored archive.</p>
                   </div>
                 </div>
               )}
