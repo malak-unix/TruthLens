@@ -2,6 +2,10 @@
 
 TruthLens is a web app for monitoring viral news, assigning an explainable credibility score, and helping users verify content before sharing it.
 
+## Live Demo
+
+- Production app: `https://truth-lens-lyart-nine.vercel.app/`
+
 ## Stack
 
 - Frontend: Next.js 16 + React 19
