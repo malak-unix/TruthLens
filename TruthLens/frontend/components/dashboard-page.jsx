@@ -95,13 +95,13 @@ function getToneFromLabel(label) {
 }
 
 function getAnalysisTitle(label) {
-  if (label === "Reliable") return "Source solide detectee";
-  if (label === "Needs Context") return "Contexte supplementaire requis";
-  if (label === "Unverified") return "Signal precoce";
-  if (label === "Suspicious") return "Contenu suspect";
-  if (label === "High Risk") return "Risque eleve";
-  if (label === "No Input") return "Pret pour l'analyse";
-  return "Analyse terminee";
+  if (label === "Reliable") return "Strong source baseline detected";
+  if (label === "Needs Context") return "More context is required";
+  if (label === "Unverified") return "Early signal detected";
+  if (label === "Suspicious") return "Suspicious content";
+  if (label === "High Risk") return "High risk content";
+  if (label === "No Input") return "Ready for analysis";
+  return "Analysis complete";
 }
 
 function formatTimeAgo(publishedAt) {
@@ -185,19 +185,19 @@ function mapTrendingTopic(topic) {
 
 function buildEmptyAnalysis() {
   return {
-    title: "Pret pour l'analyse",
+    title: "Ready for analysis",
     score: 0,
-    label: "Aucune entree",
+    label: "No input yet",
     tone: "watch",
     explanation:
-      "Collez une URL ou un texte. Cette zone est maintenant connectee au backend FastAPI /analyze.",
-    evidence: ["Champ vide", "Attente d'une saisie utilisateur"],
+      "Paste a URL or a text claim. This panel is connected to the FastAPI /analyze endpoint.",
+    evidence: ["No content provided", "Waiting for user input"],
     sourceScore: 0,
     articleScore: 0,
     corroborationScore: 0,
     verificationStatus: "No verification yet",
     sourceProfile: null,
-    finalLabel: "Aucune entree",
+    finalLabel: "No input yet",
   };
 }
 
@@ -888,7 +888,7 @@ export function DashboardPage() {
 
       pushNotification(
         "Login successful",
-        `Connected as ${data.user.full_name || data.user.email}`,
+        `Signed in as ${data.user.full_name || data.user.email}`,
         "success"
       );
 
@@ -963,7 +963,7 @@ export function DashboardPage() {
         );
       } catch (error) {
         console.error("Failed to load news:", error);
-        setNewsError("Impossible de charger les actualites.");
+        setNewsError("Unable to load the news feed.");
       } finally {
         setNewsLoading(false);
       }
@@ -1254,7 +1254,7 @@ export function DashboardPage() {
 
         <div className="sidebar-footer">
           <p>TruthLens v1.0</p>
-          <span>{currentUser ? "User connected" : "Gemini-ready assistant"}</span>
+          <span>{currentUser ? "Signed in" : "Gemini-ready assistant"}</span>
         </div>
       </aside>
 
@@ -1316,8 +1316,8 @@ export function DashboardPage() {
                 <p className="hero-card__kicker">Real-time credibility analysis</p>
                 <h2>Viral News Monitor</h2>
                 <p className="hero-card__subtitle">
-                  Suivi live des actualites Maroc et Monde avec badges de credibilite,
-                  trend intelligence hybride et assistant de verification integre.
+                  Live Morocco and World coverage with credibility badges,
+                  hybrid trend intelligence, and an integrated verification assistant.
                 </p>
               </div>
 
@@ -1329,7 +1329,7 @@ export function DashboardPage() {
                 <span className="hero-card__note">
                   {overviewStats?.last_refresh_batch
                     ? `Last refresh: ${overviewStats.last_refresh_batch}`
-                    : "Backend FastAPI + SQLite + JWT connecte"}
+                    : "Backend FastAPI + SQLite + JWT connected"}
                 </span>
               </div>
             </section>
@@ -1384,14 +1384,14 @@ export function DashboardPage() {
                   <CheckCircle2 size={28} />
                   <div>
                     <h3>Loading news...</h3>
-                    <p>Le tableau de bord charge les actualites depuis le backend.</p>
+                    <p>The dashboard is loading live news from the backend.</p>
                   </div>
                 </div>
               ) : newsError ? (
                 <div className="empty-state">
                   <CheckCircle2 size={28} />
                   <div>
-                    <h3>Erreur de chargement</h3>
+                    <h3>Loading error</h3>
                     <p>{newsError}</p>
                   </div>
                 </div>
@@ -1431,7 +1431,7 @@ export function DashboardPage() {
                 <p className="hero-card__kicker">Trending overview</p>
                 <h2>Trending Topics</h2>
                 <p className="hero-card__subtitle">
-                  Vue rapide des sujets les plus suivis pour {regionLabels[activeRegion]}.
+                  A quick view of the most active topics for {regionLabels[activeRegion]}.
                 </p>
               </div>
 
@@ -1467,7 +1467,7 @@ export function DashboardPage() {
                   <CheckCircle2 size={28} />
                   <div>
                     <h3>Loading trends...</h3>
-                    <p>Les tendances sont en cours de chargement depuis le backend.</p>
+                    <p>Trending topics are loading from the backend.</p>
                   </div>
                 </div>
               ) : visibleTrending.length > 0 ? (
@@ -1488,7 +1488,7 @@ export function DashboardPage() {
                   <CheckCircle2 size={28} />
                   <div>
                     <h3>No trending topics</h3>
-                    <p>Aucune tendance n'est disponible pour cette region pour le moment.</p>
+                    <p>No trending topics are available for this region yet.</p>
                   </div>
                 </div>
               )}
@@ -1503,7 +1503,7 @@ export function DashboardPage() {
                 <p className="hero-card__kicker">Category overview</p>
                 <h2>Categories</h2>
                 <p className="hero-card__subtitle">
-                  Repartition des actualites chargees depuis le backend par categorie.
+                  Distribution of backend news coverage by category.
                 </p>
               </div>
 
@@ -1540,7 +1540,7 @@ export function DashboardPage() {
                     key={item.label}
                     eyebrow="Category"
                     title={item.label}
-                    description="Nombre d'articles actuellement disponibles dans cette categorie."
+                    description="Number of articles currently available in this category."
                     value={item.value}
                     index={index}
                   />
@@ -1550,7 +1550,7 @@ export function DashboardPage() {
                   <CheckCircle2 size={28} />
                   <div>
                     <h3>No category data</h3>
-                    <p>Aucune categorie exploitable pour la region selectionnee.</p>
+                    <p>No category data is available for the selected region.</p>
                   </div>
                 </div>
               )}
@@ -1565,7 +1565,7 @@ export function DashboardPage() {
                 <p className="hero-card__kicker">System metrics</p>
                 <h2>Statistics</h2>
                 <p className="hero-card__subtitle">
-                  Activite du systeme, volume de verification et suivi des contenus.
+                  System activity, verification volume, and monitoring metrics.
                 </p>
               </div>
 
@@ -1874,7 +1874,7 @@ export function DashboardPage() {
                       color: "#64748b",
                     }}
                   >
-                    ×
+                    x
                   </button>
                 </div>
 
@@ -1927,7 +1927,7 @@ export function DashboardPage() {
                       color: "#64748b",
                     }}
                   >
-                    ×
+                    x
                   </button>
                 </div>
 
