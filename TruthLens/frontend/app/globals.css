@@ -241,14 +241,16 @@ button {
 .brand-mark__logo {
   display: grid;
   place-items: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 14px;
-  background: linear-gradient(145deg, #ff3037, #d80d15);
-  color: white;
-  font-weight: 800;
-  font-family: "Bahnschrift", "Arial Narrow", sans-serif;
-  font-size: 1.5rem;
+  width: 58px;
+  height: 58px;
+  flex-shrink: 0;
+}
+
+.brand-mark__logo-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
 }
 
 .brand-mark h1,

@@ -163,7 +163,7 @@ function mapBackendArticle(article) {
     badge: article.credibility_label,
     badgeClass: getBadgeClass(article.credibility_label),
     scoreColor: getScoreColor(article.credibility_score),
-    image: getCategoryImage(article.category),
+    image: article.image_url || getCategoryImage(article.category),
     url: article.url,
     region: article.country === "ma" ? "morocco" : "world",
     explanation: article.explanation,
@@ -557,6 +557,11 @@ function HistoricalArticleCard({ article, index, onSelect, isSelected }) {
       style={{ animationDelay: `${index * 80}ms` }}
       onClick={() => onSelect?.(article)}
     >
+      <div
+        className="article-card__media"
+        style={{ backgroundImage: `url('${article.image}')` }}
+      />
+
       <div className="article-card__content">
         <div className="article-card__header">
           <div>
@@ -1085,7 +1090,9 @@ export function DashboardPage() {
     <main className="dashboard-shell">
       <aside className="assistant-sidebar">
         <div className="brand-mark">
-          <div className="brand-mark__logo">T</div>
+          <div className="brand-mark__logo">
+            <img src="/truthlens-logo.png" alt="TruthLens logo" className="brand-mark__logo-image" />
+          </div>
           <div>
             <h1>TruthLens</h1>
           </div>

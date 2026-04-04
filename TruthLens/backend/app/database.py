@@ -108,6 +108,7 @@ def init_db():
 
     _ensure_column(cursor, "news_articles", "provider_name", "TEXT")
     _ensure_column(cursor, "news_articles", "source_domain", "TEXT")
+    _ensure_column(cursor, "news_articles", "image_url", "TEXT")
     _ensure_column(cursor, "news_articles", "priority_topic", "TEXT")
     _ensure_column(cursor, "news_articles", "priority_score", "REAL DEFAULT 0")
     _ensure_column(cursor, "news_articles", "trend_score", "REAL DEFAULT 0")
@@ -162,13 +163,13 @@ def upsert_news_items(cursor, items: list[dict], batch_label: str):
             """
             INSERT INTO news_articles (
                 title, source_name, published_at, country, category, url,
-                description, credibility_score, credibility_label, explanation,
+                image_url, description, credibility_score, credibility_label, explanation,
                 source_type, source_trust_level, language, batch_label, fetched_at, analyzed_at,
                 provider_name, source_domain, priority_topic, priority_score, trend_score,
                 coverage_score, ranking_score, dedupe_key, is_priority, is_conflict, completeness_score,
                 source_score, article_score, corroboration_score, verification_status
             ) VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
             ON CONFLICT(url) DO UPDATE SET
@@ -177,6 +178,7 @@ def upsert_news_items(cursor, items: list[dict], batch_label: str):
                 published_at = excluded.published_at,
                 country = excluded.country,
                 category = excluded.category,
+                image_url = excluded.image_url,
                 description = excluded.description,
                 credibility_score = excluded.credibility_score,
                 credibility_label = excluded.credibility_label,
@@ -210,6 +212,7 @@ def upsert_news_items(cursor, items: list[dict], batch_label: str):
                 item["country"],
                 item["category"],
                 item["url"],
+                item.get("image_url"),
                 item["description"],
                 item["credibility_score"],
                 item["credibility_label"],

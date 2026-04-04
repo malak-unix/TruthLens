@@ -14,7 +14,7 @@ def fetch_general(request: FetchRequest) -> list[dict]:
     params = {
         "api-key": settings.guardian_api_key or "test",
         "page-size": request.limit,
-        "show-fields": "trailText",
+        "show-fields": "trailText,thumbnail",
         "order-by": "newest",
         "q": query,
     }
@@ -43,7 +43,7 @@ def fetch_priority(request: FetchRequest) -> list[dict]:
     params = {
         "api-key": settings.guardian_api_key or "test",
         "page-size": request.limit,
-        "show-fields": "trailText",
+        "show-fields": "trailText,thumbnail",
         "order-by": "newest",
         "q": query,
     }
@@ -71,6 +71,7 @@ def _normalize_articles(raw_articles: list[dict], request: FetchRequest) -> list
             url=article.get("webUrl") or "",
             published_at=article.get("webPublicationDate") or "",
             source_name="The Guardian",
+            image_url=((article.get("fields") or {}).get("thumbnail") or ""),
             fallback_region=request.region,
             fallback_category=request.category,
             topic_bundle=request.topic_bundle,

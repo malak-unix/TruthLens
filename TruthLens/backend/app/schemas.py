@@ -12,6 +12,7 @@ class NewsItem(BaseModel):
     country: str
     category: str
     url: str
+    image_url: Optional[str] = None
     description: str
     credibility_score: int
     credibility_label: str

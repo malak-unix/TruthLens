@@ -80,6 +80,17 @@ def canonicalize_url(value: str | None) -> str:
     return urlunparse(cleaned)
 
 
+def normalize_image_url(value: str | None) -> str:
+    raw = sanitize_text(value, "")
+    if not raw:
+        return ""
+
+    if raw.startswith(("http://", "https://")):
+        return raw
+
+    return ""
+
+
 def parse_timestamp(value: str | None) -> str:
     if not value:
         return datetime.now(timezone.utc).isoformat()
@@ -181,6 +192,7 @@ def normalize_article(
     url: str,
     published_at: str,
     source_name: str,
+    image_url: str = "",
     fallback_region: str,
     fallback_category: str,
     topic_bundle: Optional[PriorityTopicBundle] = None,
@@ -246,6 +258,7 @@ def normalize_article(
         "country": region,
         "category": category,
         "url": clean_url,
+        "image_url": normalize_image_url(image_url),
         "description": clean_description,
         "credibility_score": analysis["credibility_score"],
         "credibility_label": analysis["credibility_label"],

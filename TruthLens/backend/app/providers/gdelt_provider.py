@@ -154,6 +154,7 @@ def _normalize_articles(raw_articles: list[dict], request: FetchRequest, default
             url=url,
             published_at=article.get("seendate") or article.get("date") or "",
             source_name=article.get("domain") or PROVIDER_NAME,
+            image_url=article.get("socialimage") or article.get("image") or "",
             fallback_region=request.region,
             fallback_category=request.category,
             topic_bundle=request.topic_bundle,

@@ -78,6 +78,7 @@ def _normalize_articles(raw_articles: list[dict], request: FetchRequest) -> list
             url=article.get("url") or "",
             published_at=article.get("publishedAt") or "",
             source_name=(article.get("source") or {}).get("name") or PROVIDER_NAME,
+            image_url=article.get("image") or "",
             fallback_region=request.region,
             fallback_category=request.category,
             topic_bundle=request.topic_bundle,
