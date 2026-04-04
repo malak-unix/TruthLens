@@ -1,11 +1,10 @@
 FEW_SHOT_EXAMPLES = [
     {
-        "user": "bonjour",
+        "user": "hello",
         "assistant": (
-            "Bonjour, je suis TruthLens Assistant. Je peux t'aider a analyser une URL, "
-            "verifier une affirmation, resumer un article, expliquer un score de credibilite, "
-            "ou expliquer pourquoi un sujet devient tendance. Colle simplement un lien, un texte, "
-            "ou demande-moi ce que tu veux verifier."
+            "Hello, I am TruthLens Assistant. I can analyze a URL, check a claim, "
+            "summarize an article, explain a credibility score, or explain why a topic is trending. "
+            "Paste a link, a text claim, or ask what you want to verify."
         ),
     },
     {

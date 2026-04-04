@@ -117,6 +117,10 @@ def init_db():
     _ensure_column(cursor, "news_articles", "is_priority", "INTEGER DEFAULT 0")
     _ensure_column(cursor, "news_articles", "is_conflict", "INTEGER DEFAULT 0")
     _ensure_column(cursor, "news_articles", "completeness_score", "REAL DEFAULT 0")
+    _ensure_column(cursor, "news_articles", "source_score", "INTEGER")
+    _ensure_column(cursor, "news_articles", "article_score", "INTEGER")
+    _ensure_column(cursor, "news_articles", "corroboration_score", "INTEGER")
+    _ensure_column(cursor, "news_articles", "verification_status", "TEXT")
     _ensure_column(cursor, "trending_topics", "title", "TEXT")
     _ensure_column(cursor, "trending_topics", "normalized_topic", "TEXT")
     _ensure_column(cursor, "trending_topics", "source_signals", "TEXT DEFAULT '[]'")
@@ -161,10 +165,11 @@ def upsert_news_items(cursor, items: list[dict], batch_label: str):
                 description, credibility_score, credibility_label, explanation,
                 source_type, source_trust_level, language, batch_label, fetched_at, analyzed_at,
                 provider_name, source_domain, priority_topic, priority_score, trend_score,
-                coverage_score, ranking_score, dedupe_key, is_priority, is_conflict, completeness_score
+                coverage_score, ranking_score, dedupe_key, is_priority, is_conflict, completeness_score,
+                source_score, article_score, corroboration_score, verification_status
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
             ON CONFLICT(url) DO UPDATE SET
                 title = excluded.title,
@@ -192,7 +197,11 @@ def upsert_news_items(cursor, items: list[dict], batch_label: str):
                 dedupe_key = excluded.dedupe_key,
                 is_priority = excluded.is_priority,
                 is_conflict = excluded.is_conflict,
-                completeness_score = excluded.completeness_score
+                completeness_score = excluded.completeness_score,
+                source_score = excluded.source_score,
+                article_score = excluded.article_score,
+                corroboration_score = excluded.corroboration_score,
+                verification_status = excluded.verification_status
             """,
             (
                 item["title"],
@@ -220,6 +229,10 @@ def upsert_news_items(cursor, items: list[dict], batch_label: str):
                 1 if item.get("is_priority") else 0,
                 1 if item.get("is_conflict") else 0,
                 item.get("completeness_score", 0),
+                item.get("source_score"),
+                item.get("article_score"),
+                item.get("corroboration_score"),
+                item.get("verification_status"),
             ),
         )
 
@@ -313,14 +326,72 @@ def get_news_from_db(country: Optional[str] = None, category: Optional[str] = No
 
     cursor.execute(query, params)
     rows = cursor.fetchall()
-    conn.close()
 
     results = []
+    needs_commit = False
+
     for row in rows:
         item = dict(row)
+
+        if (
+            item.get("source_score") is None
+            or item.get("article_score") is None
+            or item.get("corroboration_score") is None
+            or not item.get("verification_status")
+        ):
+            from app.analyzer import analyze_payload
+
+            analysis = analyze_payload(
+                text=f"{item.get('title', '')}. {item.get('description', '')}",
+                url=item.get("url", ""),
+                source_name=item.get("source_name", ""),
+                article_metadata={
+                    "url": item.get("url", ""),
+                    "title": item.get("title", ""),
+                    "description": item.get("description", ""),
+                    "text": item.get("description", ""),
+                    "published_at": item.get("published_at", ""),
+                    "author": "",
+                },
+            )
+
+            item["source_score"] = analysis.get("source_score")
+            item["article_score"] = analysis.get("article_score")
+            item["corroboration_score"] = analysis.get("corroboration_score")
+            item["verification_status"] = analysis.get("verification_status")
+            item["credibility_score"] = analysis.get("credibility_score", item.get("credibility_score"))
+            item["credibility_label"] = analysis.get("credibility_label", item.get("credibility_label"))
+            item["explanation"] = analysis.get("explanation", item.get("explanation"))
+
+            cursor.execute(
+                """
+                UPDATE news_articles
+                SET source_score = ?, article_score = ?, corroboration_score = ?,
+                    verification_status = ?, credibility_score = ?, credibility_label = ?,
+                    explanation = ?, analyzed_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                (
+                    item["source_score"],
+                    item["article_score"],
+                    item["corroboration_score"],
+                    item["verification_status"],
+                    item["credibility_score"],
+                    item["credibility_label"],
+                    item["explanation"],
+                    item["id"],
+                ),
+            )
+            needs_commit = True
+
         item["is_priority"] = bool(item.get("is_priority"))
         item["is_conflict"] = bool(item.get("is_conflict"))
         results.append(item)
+
+    if needs_commit:
+        conn.commit()
+
+    conn.close()
     return results
 
 

@@ -13,9 +13,9 @@ export const navigationItems = [
 ];
 
 export const factCheckTips = [
-  "URL officiel",
-  "Titre viral",
-  "Post social",
+  "Official URL",
+  "Viral headline",
+  "Social post",
 ];
 
 export const assistantStarterPrompts = [

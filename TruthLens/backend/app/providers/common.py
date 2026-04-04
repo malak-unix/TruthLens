@@ -269,6 +269,10 @@ def normalize_article(
             clean_source,
             effective_published_at,
         ),
+        "source_score": analysis.get("source_score"),
+        "article_score": analysis.get("article_score"),
+        "corroboration_score": analysis.get("corroboration_score"),
+        "verification_status": analysis.get("verification_status"),
     }
 
 

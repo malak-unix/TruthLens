@@ -112,12 +112,6 @@ def classify_intent(payload: ChatRequest) -> RoutedIntent:
 
 
 def greeting_message(language: str) -> str:
-    if language == "fr":
-        return (
-            "Bonjour, je suis TruthLens Assistant. Je peux t'aider a analyser une URL, verifier une affirmation, "
-            "resumer un article, expliquer un score de credibilite, ou te dire pourquoi un sujet devient tendance. "
-            "Colle simplement un lien, un texte, ou demande-moi ce que tu veux verifier."
-        )
     return (
         "Hello, I am TruthLens Assistant. I can analyze a URL, check a claim, summarize an article, "
         "explain a credibility score, or tell you why a topic is trending. Paste a link, a text claim, "
