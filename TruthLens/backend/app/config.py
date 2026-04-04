@@ -69,6 +69,9 @@ class Settings:
     startup_refresh_max_age_minutes: int
     social_trend_limit: int
     trend_provider_timeout_seconds: int
+    enable_og_image_fallback: bool
+    image_metadata_timeout_seconds: int
+    news_history_retention_days: int
 
     @property
     def gemini_enabled(self) -> bool:
@@ -138,4 +141,7 @@ def get_settings() -> Settings:
         startup_refresh_max_age_minutes=int(os.getenv("STARTUP_REFRESH_MAX_AGE_MINUTES", "120")),
         social_trend_limit=int(os.getenv("SOCIAL_TREND_LIMIT", "8")),
         trend_provider_timeout_seconds=int(os.getenv("TREND_PROVIDER_TIMEOUT_SECONDS", "8")),
+        enable_og_image_fallback=os.getenv("ENABLE_OG_IMAGE_FALLBACK", "true").lower() == "true",
+        image_metadata_timeout_seconds=int(os.getenv("IMAGE_METADATA_TIMEOUT_SECONDS", "5")),
+        news_history_retention_days=int(os.getenv("NEWS_HISTORY_RETENTION_DAYS", "365")),
     )

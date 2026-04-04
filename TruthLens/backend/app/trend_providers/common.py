@@ -45,6 +45,10 @@ class TrendSignal:
     related_articles_count: int = 0
     verification_score: float = 0.0
     note: str = ""
+    media_type: str = "text"
+    thumbnail_url: str = ""
+    source_url: str = ""
+    verification_status: str = "unverified"
     metadata: dict = field(default_factory=dict)
 
 

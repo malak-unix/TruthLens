@@ -12,27 +12,67 @@ def fetch_general(request: FetchRequest) -> list[dict]:
     if not settings.gnews_enabled:
         return []
 
-    params = {
-        "token": settings.gnews_api_key,
-        "lang": "en",
-        "max": request.limit,
-    }
+    requests_to_run = []
 
     if request.region == "ma":
-        params["country"] = "ma"
-        params["category"] = "general"
+        requests_to_run.append(
+            (
+                f"{BASE_URL}/top-headlines",
+                {
+                    "token": settings.gnews_api_key,
+                    "lang": "en",
+                    "country": "ma",
+                    "category": "general",
+                    "max": request.limit,
+                },
+            )
+        )
+        requests_to_run.append(
+            (
+                f"{BASE_URL}/search",
+                {
+                    "token": settings.gnews_api_key,
+                    "lang": "en",
+                    "country": "ma",
+                    "sortby": "publishedAt",
+                    "q": "Morocco Rabat Casablanca policy economy protest technology",
+                    "max": max(6, request.limit // 2),
+                },
+            )
+        )
     else:
-        params["topic"] = "world"
+        requests_to_run.append(
+            (
+                f"{BASE_URL}/top-headlines",
+                {
+                    "token": settings.gnews_api_key,
+                    "lang": "en",
+                    "topic": "world",
+                    "max": request.limit,
+                },
+            )
+        )
+        requests_to_run.append(
+            (
+                f"{BASE_URL}/search",
+                {
+                    "token": settings.gnews_api_key,
+                    "lang": "en",
+                    "sortby": "publishedAt",
+                    "q": "world diplomacy conflict economy climate technology",
+                    "max": max(6, request.limit // 2),
+                },
+            )
+        )
 
-    data = request_json(
-        f"{BASE_URL}/top-headlines",
-        params=params,
-        timeout=settings.request_timeout_seconds,
-    )
-    if not data:
-        return []
+    items = []
+    for url, params in requests_to_run:
+        data = request_json(url, params=params, timeout=settings.request_timeout_seconds)
+        if not data:
+            continue
+        items.extend(_normalize_articles(data.get("articles", []), request))
 
-    return _normalize_articles(data.get("articles", []), request)
+    return items
 
 
 def fetch_priority(request: FetchRequest) -> list[dict]:

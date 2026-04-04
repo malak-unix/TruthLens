@@ -74,6 +74,7 @@ def build_trend_intelligence(articles: list[dict]) -> tuple[list[dict], dict]:
             "surging" if recency_score >= 8 else "fresh" if recency_score >= 5 else "active"
         )
         confidence_note = build_confidence_note(source_signal_labels, platform_signal_labels)
+        verification_status = build_verification_status(verification_score, verification_gap_score)
 
         trend_records.append(
             {
@@ -94,6 +95,11 @@ def build_trend_intelligence(articles: list[dict]) -> tuple[list[dict], dict]:
                 "verification_score": round(verification_score, 1),
                 "verification_gap_score": verification_gap_score,
                 "confidence_note": confidence_note,
+                "platform": display_signal.platform,
+                "media_type": display_signal.media_type,
+                "thumbnail_url": display_signal.thumbnail_url,
+                "source_url": display_signal.source_url,
+                "verification_status": verification_status,
             }
         )
 
@@ -119,3 +125,13 @@ def build_confidence_note(source_signals: list[str], platform_signals: list[str]
     if platform_signals:
         return "Social-led signal: this trend is rising on social platforms and should be verified carefully."
     return "Limited confidence: only weak signals are currently available."
+
+
+def build_verification_status(verification_score: float, verification_gap_score: float) -> str:
+    if verification_gap_score >= 25:
+        return "suspicious signals"
+    if verification_score >= 70:
+        return "supported by stronger sources"
+    if verification_score >= 42:
+        return "needs context"
+    return "unverified"

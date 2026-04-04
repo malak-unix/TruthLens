@@ -49,6 +49,9 @@ def collect_trends(region: str) -> TrendProviderResult:
                     "title": post.get("title", ""),
                     "score": float(post.get("score") or 0),
                     "comments": float(post.get("num_comments") or 0),
+                    "thumbnail": post.get("thumbnail", "") if str(post.get("thumbnail", "")).startswith("http") else "",
+                    "permalink": f"https://www.reddit.com{post.get('permalink', '')}",
+                    "media_type": "video" if post.get("is_video") else "image" if str(post.get("thumbnail", "")).startswith("http") else "text",
                     "created_at": datetime.fromtimestamp(
                         float(post.get("created_utc") or datetime.now(timezone.utc).timestamp()),
                         tz=timezone.utc,
@@ -80,6 +83,7 @@ def collect_trends(region: str) -> TrendProviderResult:
         total_score = sum(post["score"] for post in related_posts)
         total_comments = sum(post["comments"] for post in related_posts)
         latest_timestamp = max(post["created_at"] for post in related_posts)
+        lead_post = max(related_posts, key=lambda post: post["score"] + post["comments"])
         display_title = max(
             (key for key in display_titles if key[0] == normalized),
             key=lambda key: display_titles[key],
@@ -101,6 +105,10 @@ def collect_trends(region: str) -> TrendProviderResult:
                 related_articles_count=len(related_posts),
                 verification_score=0.0,
                 note="Derived from Reddit hot posts.",
+                media_type=lead_post.get("media_type", "text"),
+                thumbnail_url=lead_post.get("thumbnail", ""),
+                source_url=lead_post.get("permalink", ""),
+                verification_status="limited-context analysis",
             )
         )
 

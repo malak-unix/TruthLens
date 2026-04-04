@@ -4,15 +4,20 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import {
   Activity,
+  AlertTriangle,
   Bell,
   Bot,
   CheckCircle2,
   Clock3,
   ExternalLink,
+  Languages,
+  Moon,
   Search,
   SendHorizontal,
   Sparkles,
+  Sun,
   UserRound,
+  X,
 } from "lucide-react";
 import {
   Area,
@@ -24,6 +29,14 @@ import {
 } from "recharts";
 
 import { navigationItems } from "../lib/mock-data";
+import {
+  getDirection,
+  getTranslator,
+  translateCategory,
+  translateCredibilityLabel,
+  translateTrustLevel,
+  translateVerificationStatus,
+} from "../lib/i18n";
 
 import {
   fetchNews,
@@ -37,10 +50,24 @@ import {
   fetchCurrentUser,
 } from "../lib/api";
 
-const regionLabels = {
-  morocco: "Morocco",
-  world: "World",
-};
+const THEME_STORAGE_KEY = "truthlens_theme";
+const LANGUAGE_STORAGE_KEY = "truthlens_language";
+
+function getStoredTheme() {
+  if (typeof window === "undefined") return "light";
+
+  const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+  if (stored === "dark" || stored === "light") {
+    return stored;
+  }
+
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function getStoredLanguage() {
+  if (typeof window === "undefined") return "fr";
+  return window.localStorage.getItem(LANGUAGE_STORAGE_KEY) === "ar" ? "ar" : "fr";
+}
 
 const resultStyles = {
   reliable: {
@@ -87,37 +114,37 @@ function getToneFromLabel(label) {
   return "risk";
 }
 
-function getAnalysisTitle(label) {
-  if (label === "Reliable") return "Strong source baseline detected";
-  if (label === "Needs Context") return "More context is required";
-  if (label === "Unverified") return "Early signal detected";
-  if (label === "Suspicious") return "Suspicious content";
-  if (label === "High Risk") return "High risk content";
-  if (label === "No Input") return "Ready for analysis";
-  return "Analysis complete";
+function getAnalysisTitle(label, t) {
+  if (label === "Reliable") return t("analysis.sourceBaselineStrong");
+  if (label === "Needs Context") return t("analysis.moreContextRequired");
+  if (label === "Unverified") return t("analysis.earlySignal");
+  if (label === "Suspicious") return t("analysis.suspicious");
+  if (label === "High Risk") return t("analysis.highRisk");
+  if (label === "No Input") return t("analysis.ready");
+  return t("analysis.analysisComplete");
 }
 
-function formatTimeAgo(publishedAt) {
+function formatTimeAgo(publishedAt, t) {
   const published = new Date(publishedAt);
   const now = new Date();
   const diffMs = now - published;
   const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
   const diffMinutes = Math.floor(diffMs / (1000 * 60));
 
-  if (diffHours > 0) return `${diffHours} hour${diffHours > 1 ? "s" : ""} ago`;
-  if (diffMinutes > 0) return `${diffMinutes} min ago`;
-  return "Just now";
+  if (diffHours > 0) return `${diffHours} ${t("article.hoursAgo")}`;
+  if (diffMinutes > 0) return `${diffMinutes} ${t("article.minutesAgo")}`;
+  return t("article.justNow");
 }
 
-function formatDateTime(value) {
-  if (!value) return "Not available";
+function formatDateTime(value, language, t) {
+  if (!value) return t("statuses.notAvailable");
 
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     return value;
   }
 
-  return date.toLocaleString([], {
+  return date.toLocaleString(language === "ar" ? "ar-MA" : "fr-MA", {
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -157,7 +184,6 @@ function mapBackendArticle(article) {
     category: article.category,
     source: article.source_name,
     publishedAt: article.published_at,
-    timeAgo: formatTimeAgo(article.published_at),
     summary: article.description,
     score: article.credibility_score,
     badge: article.credibility_label,
@@ -174,6 +200,10 @@ function mapBackendArticle(article) {
     sourceTrustLevel: article.source_trust_level,
     priorityTopic: article.priority_topic || "",
     rankingScore: article.ranking_score || 0,
+    sourceScore: article.source_score ?? null,
+    articleScore: article.article_score ?? null,
+    corroborationScore: article.corroboration_score ?? null,
+    verificationStatus: article.verification_status || "",
   };
 }
 
@@ -189,28 +219,33 @@ function mapTrendingTopic(topic) {
     region: topic.region === "ma" ? "morocco" : "world",
     sourceSignals: topic.source_signals || [],
     platformSignals: topic.platform_signals || [],
+    platform: topic.platform || "news",
+    mediaType: topic.media_type || "text",
+    thumbnailUrl: topic.thumbnail_url || "",
+    sourceUrl: topic.source_url || "",
     viralityScore: topic.virality_score || topic.intensity,
     verificationGapScore: topic.verification_gap_score || 0,
+    verificationStatus: topic.verification_status || "unverified",
     confidenceNote: topic.confidence_note || "",
     recencyScore: topic.recency_score || 0,
   };
 }
 
-function buildEmptyAnalysis() {
+function buildEmptyAnalysis(t) {
   return {
-    title: "Ready for analysis",
+    title: t("analysis.ready"),
     score: 0,
-    label: "No input yet",
+    label: "No Input",
     tone: "watch",
     explanation:
       "Paste a URL or a text claim. This panel is connected to the FastAPI /analyze endpoint.",
-    evidence: ["No content provided", "Waiting for user input"],
+    evidence: [t("analysis.noContentProvided"), t("analysis.waitingInput")],
     sourceScore: 0,
     articleScore: 0,
     corroborationScore: 0,
     verificationStatus: "No verification yet",
     sourceProfile: null,
-    finalLabel: "No input yet",
+    finalLabel: "No Input",
   };
 }
 
@@ -235,21 +270,21 @@ function buildConversationMessage(role, content, extra = {}) {
   };
 }
 
-function buildAssistantWelcome(region, selectedArticle, selectedTrend) {
+function buildAssistantWelcome(t, region, selectedArticle, selectedTrend) {
   if (selectedTrend) {
-    return `Bonjour! Je suis votre assistant TruthLens. Je peux vous expliquer pourquoi "${selectedTrend.label}" devient tendance et quoi verifier ensuite.`;
+    return t("assistant.welcomeTrend");
   }
 
   if (selectedArticle) {
-    return "Bonjour! Je suis votre assistant TruthLens. Je peux resumer cet article, expliquer son score de credibilite et vous dire quoi verifier ensuite.";
+    return t("assistant.welcomeArticle");
   }
 
-  return "Bonjour! Je suis votre assistant TruthLens. Comment puis-je vous aider a verifier des informations aujourd'hui?";
+  return t("assistant.welcomeDefault");
 }
 
-function mapAnalysisResult(result) {
+function mapAnalysisResult(result, t) {
   return {
-    title: getAnalysisTitle(result.credibility_label),
+    title: getAnalysisTitle(result.credibility_label, t),
     score: result.credibility_score,
     label: result.credibility_label,
     finalLabel: result.final_label || result.credibility_label,
@@ -258,7 +293,7 @@ function mapAnalysisResult(result) {
     evidence:
       result.risk_signals && result.risk_signals.length > 0
         ? result.risk_signals
-        : ["No major risk signal detected"],
+        : [t("analysis.noRiskSignal")],
     verificationTips: result.verification_tips || [],
     inputType: result.input_type || "text",
     sourceScore: result.source_score || 0,
@@ -286,7 +321,364 @@ function buildActivityFromStats(stats, trendingCount) {
   ];
 }
 
-function ArticleCard({ article, index, onSelect, isSelected }) {
+function normalizeText(value = "") {
+  return value
+    .toLowerCase()
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/[^\p{L}\p{N}\s-]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractKeywords(value = "") {
+  return normalizeText(value)
+    .split(" ")
+    .filter((token) => token.length >= 4)
+    .slice(0, 8);
+}
+
+function includesKeywordSet(text, keywords) {
+  if (!text || keywords.length === 0) return false;
+  const normalized = normalizeText(text);
+  return keywords.some((keyword) => normalized.includes(keyword));
+}
+
+function findRelatedArticles({ selectedArticle, selectedTrend, articles, historicalArticles }) {
+  const seed =
+    selectedArticle?.title ||
+    selectedArticle?.priorityTopic ||
+    selectedTrend?.normalizedTopic ||
+    selectedTrend?.label ||
+    "";
+
+  const keywords = extractKeywords(seed);
+  const pool = [...articles, ...historicalArticles];
+  const seen = new Set();
+
+  return pool.filter((item) => {
+    if (seen.has(item.id)) return false;
+    const matches =
+      (selectedArticle && item.id === selectedArticle.id) ||
+      includesKeywordSet(item.title, keywords) ||
+      includesKeywordSet(item.summary, keywords) ||
+      includesKeywordSet(item.priorityTopic, keywords);
+
+    if (matches) {
+      seen.add(item.id);
+    }
+
+    return matches;
+  });
+}
+
+function buildConfidenceCardData({ selectedArticle, analysisResult, t, language }) {
+  const fallbackScore = analysisResult?.score || 0;
+  const fallbackLabel = analysisResult?.finalLabel || analysisResult?.label || "Unverified";
+  const label = selectedArticle?.badge || fallbackLabel;
+  const score = selectedArticle?.score ?? fallbackScore;
+  const sourceScore = selectedArticle?.sourceScore ?? analysisResult?.sourceScore ?? 0;
+  const articleScore = selectedArticle?.articleScore ?? analysisResult?.articleScore ?? 0;
+  const corroborationScore =
+    selectedArticle?.corroborationScore ?? analysisResult?.corroborationScore ?? 0;
+  const verificationStatus =
+    selectedArticle?.verificationStatus || analysisResult?.verificationStatus || "No verification yet";
+
+  let level = translateCredibilityLabel(label, language);
+  if (score >= 85) level = translateCredibilityLabel("Reliable", language);
+  else if (score >= 65) level = translateCredibilityLabel("Needs Context", language);
+  else if (score >= 45) level = translateCredibilityLabel("Unverified", language);
+  else level = translateCredibilityLabel("Suspicious", language);
+
+  const topSignals = [
+    `${t("article.source")}: ${sourceScore || "--"}/100`,
+    `${t("article.articleQuality")}: ${articleScore || "--"}/100`,
+    `${t("article.corroboration")}: ${corroborationScore || "--"}/100`,
+  ];
+
+  if (selectedArticle?.sourceTrustLevel) {
+    topSignals.push(
+      `${t("article.trust")}: ${translateTrustLevel(selectedArticle.sourceTrustLevel, language)}`
+    );
+  }
+
+  let nextAction = t("assistant.quickVerify");
+  if (verificationStatus.toLowerCase().includes("awaiting") || verificationStatus.toLowerCase().includes("non")) {
+    nextAction = t("assistant.quickCompare");
+  } else if (score < 50) {
+    nextAction = t("assistant.quickRisk");
+  } else if (selectedArticle?.url) {
+    nextAction = t("assistant.quickExplain");
+  }
+
+  return {
+    score,
+    level,
+    verificationStatus: translateVerificationStatus(verificationStatus, language),
+    topSignals: topSignals.slice(0, 4),
+    nextAction,
+  };
+}
+
+function buildNarrativeComparisonData({
+  selectedArticle,
+  selectedTrend,
+  relatedArticles,
+  t,
+  language,
+}) {
+  const reliableCoverage = relatedArticles
+    .filter(
+      (item) =>
+        item.badge === "Reliable" ||
+        item.badge === "Needs Context" ||
+        item.sourceTrustLevel === "high" ||
+        item.sourceTrustLevel === "medium"
+    )
+    .slice(0, 2);
+
+  const uncertainCoverage = relatedArticles
+    .filter(
+      (item) =>
+        item.badge === "Unverified" ||
+        item.badge === "Suspicious" ||
+        item.badge === "High Risk" ||
+        (item.verificationStatus || "").toLowerCase().includes("awaiting")
+    )
+    .slice(0, 2);
+
+  const newest = [...relatedArticles]
+    .sort((left, right) => new Date(right.publishedAt) - new Date(left.publishedAt))[0];
+  const oldest = [...relatedArticles]
+    .sort((left, right) => new Date(left.publishedAt) - new Date(right.publishedAt))[0];
+
+  return {
+    sharedNarrative:
+      selectedArticle?.title ||
+      selectedTrend?.label ||
+      t("dashboard.noResultsMessage"),
+    reliableReporting:
+      reliableCoverage.length > 0
+        ? reliableCoverage.map((item) => `${item.source}: ${item.title}`)
+        : [t("analysis.moreContextRequired")],
+    stillUnverified:
+      uncertainCoverage.length > 0
+        ? uncertainCoverage.map(
+            (item) =>
+              `${item.source}: ${translateVerificationStatus(item.verificationStatus || "unverified", language)}`
+          )
+        : [translateVerificationStatus("supported by stronger sources", language)],
+    changedOverTime:
+      oldest && newest && oldest.id !== newest.id
+        ? `${formatDateTime(oldest.publishedAt, language, t)} -> ${formatDateTime(newest.publishedAt, language, t)}`
+        : t("dashboard.verifiedFirst"),
+  };
+}
+
+function buildTimelineData({ selectedArticle, relatedArticles, language, t }) {
+  const coverage = selectedArticle ? [selectedArticle, ...relatedArticles] : relatedArticles;
+  const sorted = [...coverage]
+    .filter((item) => item.publishedAt)
+    .sort((left, right) => new Date(left.publishedAt) - new Date(right.publishedAt));
+
+  const first = sorted[0];
+  const midpoint = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length / 2))];
+  const verified =
+    coverage.find((item) => item.analyzedAt || item.verificationStatus) || selectedArticle || first;
+
+  return [
+    {
+      label: t("dashboard.firstAppearance"),
+      time: first ? formatDateTime(first.publishedAt, language, t) : t("statuses.notAvailable"),
+      detail: first?.source || t("statuses.notAvailable"),
+    },
+    {
+      label: t("dashboard.acceleration"),
+      time: midpoint ? formatDateTime(midpoint.fetchedAt || midpoint.publishedAt, language, t) : t("statuses.notAvailable"),
+      detail: midpoint ? `${coverage.length} ${t("trending.articles").toLowerCase()}` : t("statuses.notAvailable"),
+    },
+    {
+      label: t("dashboard.verificationMoment"),
+      time: verified ? formatDateTime(verified.analyzedAt || verified.fetchedAt || verified.publishedAt, language, t) : t("statuses.notAvailable"),
+      detail: verified?.verificationStatus
+        ? translateVerificationStatus(verified.verificationStatus, language)
+        : t("statuses.notAvailable"),
+    },
+  ];
+}
+
+function getTrendSampleHeadlines(trend, articles, historicalArticles) {
+  const related = findRelatedArticles({
+    selectedArticle: null,
+    selectedTrend: trend,
+    articles,
+    historicalArticles,
+  });
+
+  return [...new Set(related.map((item) => item.title))].slice(0, 2);
+}
+
+function isCrisisSignal(selectedArticle, selectedTrend) {
+  const seed = normalizeText(
+    [
+      selectedArticle?.title,
+      selectedArticle?.summary,
+      selectedArticle?.priorityTopic,
+      selectedTrend?.label,
+      selectedTrend?.normalizedTopic,
+    ]
+      .filter(Boolean)
+      .join(" ")
+  );
+
+  const crisisKeywords = [
+    "war",
+    "conflict",
+    "strike",
+    "ceasefire",
+    "invasion",
+    "crisis",
+    "guerre",
+    "conflit",
+    "greve",
+    "cessez-le-feu",
+    "crise",
+    "seisme",
+    "espace aerien",
+    "alerte sanitaire",
+    "earthquake",
+    "airspace",
+    "internet",
+    "health alert",
+    "outage",
+    "military",
+    "escalation",
+  ];
+
+  return (
+    Boolean(selectedArticle?.isConflict) ||
+    Boolean(selectedTrend?.credibilityWarning) ||
+    crisisKeywords.some((keyword) => seed.includes(keyword))
+  );
+}
+
+function WhyNowCard({ t, checksToday }) {
+  return (
+    <section className="insight-card insight-card--accent">
+      <p className="insight-card__eyebrow">{t("dashboard.whyNowKicker")}</p>
+      <h3>{t("dashboard.whyNowLead")}</h3>
+      <p>{t("dashboard.whyNowCalm")}</p>
+      <div className="insight-card__stat">
+        <strong>{checksToday}</strong>
+        <span>{t("dashboard.claimsCheckedToday")}</span>
+      </div>
+    </section>
+  );
+}
+
+function ConfidenceCard({ t, data }) {
+  return (
+    <section className="insight-card">
+      <div className="insight-card__header">
+        <div>
+          <p className="insight-card__eyebrow">{t("dashboard.confidenceCard")}</p>
+          <h3>{formatPercent(data.score)}</h3>
+        </div>
+        <span className="status-chip status-chip-soft">{data.level}</span>
+      </div>
+
+      <div className="insight-card__list">
+        <div>
+          <strong>{t("dashboard.confidenceLevel")}</strong>
+          <span>{data.verificationStatus}</span>
+        </div>
+        <div>
+          <strong>{t("dashboard.topSignals")}</strong>
+          <ul>
+            {data.topSignals.map((signal) => (
+              <li key={signal}>{signal}</li>
+            ))}
+          </ul>
+        </div>
+        <div>
+          <strong>{t("dashboard.nextBestAction")}</strong>
+          <span>{data.nextAction}</span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function NarrativeCard({ t, comparison }) {
+  return (
+    <section className="insight-card">
+      <p className="insight-card__eyebrow">{t("dashboard.compareNarrative")}</p>
+      <div className="insight-block">
+        <strong>{t("dashboard.sharedNarrative")}</strong>
+        <p>{comparison.sharedNarrative}</p>
+      </div>
+      <div className="insight-block">
+        <strong>{t("dashboard.reliableReporting")}</strong>
+        <ul>
+          {comparison.reliableReporting.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      </div>
+      <div className="insight-block">
+        <strong>{t("dashboard.stillUnverified")}</strong>
+        <ul>
+          {comparison.stillUnverified.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      </div>
+      <div className="insight-block">
+        <strong>{t("dashboard.changedOverTime")}</strong>
+        <p>{comparison.changedOverTime}</p>
+      </div>
+    </section>
+  );
+}
+
+function TimelineCard({ t, timeline }) {
+  return (
+    <section className="insight-card">
+      <p className="insight-card__eyebrow">{t("dashboard.claimTimeline")}</p>
+      <div className="timeline-list">
+        {timeline.map((item) => (
+          <div key={item.label} className="timeline-step">
+            <div className="timeline-step__dot" />
+            <div>
+              <strong>{item.label}</strong>
+              <p>{item.time}</p>
+              <span>{item.detail}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function CrisisBanner({ t }) {
+  return (
+    <section className="crisis-banner">
+      <div className="crisis-banner__icon">
+        <AlertTriangle size={20} />
+      </div>
+      <div>
+        <p className="insight-card__eyebrow">{t("dashboard.crisisMode")}</p>
+        <h3>{t("dashboard.crisisSubtitle")}</h3>
+        <div className="tips-row">
+          <span className="hint-pill">{t("dashboard.verifiedFirst")}</span>
+          <span className="hint-pill">{t("dashboard.unconfirmed")}</span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ArticleCard({ article, index, onSelect, isSelected, t, language }) {
   return (
     <article
       className={clsx("article-card", isSelected && "article-card--selected")}
@@ -301,13 +693,13 @@ function ArticleCard({ article, index, onSelect, isSelected }) {
       <div className="article-card__content">
         <div className="article-card__header">
           <div>
-            <p className="article-card__eyebrow">{article.category}</p>
+            <p className="article-card__eyebrow">{translateCategory(article.category, language)}</p>
             <h3>{article.title}</h3>
           </div>
 
           <a
             className="ghost-icon-button"
-            aria-label="Open article preview"
+            aria-label={t("actions.openArticle")}
             href={article.url}
             target="_blank"
             rel="noreferrer"
@@ -317,12 +709,12 @@ function ArticleCard({ article, index, onSelect, isSelected }) {
           </a>
         </div>
 
-        <div className="article-card__meta">
+          <div className="article-card__meta">
           <span>{article.source}</span>
           <span className="meta-separator">|</span>
           <span className="meta-time">
             <Clock3 size={14} />
-            {article.timeAgo}
+            {formatTimeAgo(article.publishedAt, t)}
           </span>
         </div>
 
@@ -330,28 +722,34 @@ function ArticleCard({ article, index, onSelect, isSelected }) {
 
         {article.priorityTopic ? (
           <div className="tips-row" style={{ marginTop: "-2px" }}>
-            <span className="hint-pill">Trend: {article.priorityTopic}</span>
+            <span className="hint-pill">
+              {t("article.trend")}: {article.priorityTopic}
+            </span>
             {article.sourceTrustLevel ? (
-              <span className="hint-pill">Trust: {article.sourceTrustLevel}</span>
+              <span className="hint-pill">
+                {t("article.trust")}: {translateTrustLevel(article.sourceTrustLevel, language)}
+              </span>
             ) : null}
           </div>
         ) : null}
 
         <div className="article-card__footer">
           <div className="credibility-block">
-            <span>Credibility:</span>
+            <span>{t("article.credibility")}:</span>
             <strong style={{ color: article.scoreColor }}>
               {formatPercent(article.score)}
             </strong>
           </div>
-          <span className={clsx("status-chip", article.badgeClass)}>{article.badge}</span>
+          <span className={clsx("status-chip", article.badgeClass)}>
+            {translateCredibilityLabel(article.badge, language)}
+          </span>
         </div>
       </div>
     </article>
   );
 }
 
-function SummaryCard({ eyebrow, title, description, value, index, danger = false }) {
+function SummaryCard({ eyebrow, title, description, value, index, danger = false, t }) {
   return (
     <article className="article-card" style={{ animationDelay: `${index * 90}ms` }}>
       <div className="article-card__content">
@@ -366,11 +764,11 @@ function SummaryCard({ eyebrow, title, description, value, index, danger = false
 
         <div className="article-card__footer">
           <div className="credibility-block">
-            <span>Value:</span>
+            <span>{t("categories.value")}:</span>
             <strong>{value}</strong>
           </div>
           {danger ? (
-            <span className="status-chip status-chip-danger">Watch</span>
+            <span className="status-chip status-chip-danger">{t("categories.watch")}</span>
           ) : null}
         </div>
       </div>
@@ -378,41 +776,69 @@ function SummaryCard({ eyebrow, title, description, value, index, danger = false
   );
 }
 
-function TrendCard({ trend, index, onSelect, isSelected }) {
+function TrendCard({ trend, index, onSelect, isSelected, t, language }) {
   return (
     <article
       className={clsx("side-card", "trend-card", isSelected && "trend-card--selected")}
       style={{ animationDelay: `${index * 80}ms` }}
       onClick={() => onSelect?.(trend)}
     >
+      {trend.thumbnailUrl ? (
+        <div
+          className="trend-card__thumb"
+          style={{ backgroundImage: `url('${trend.thumbnailUrl}')` }}
+        />
+      ) : null}
+
       <div className="side-card__header">
         <div>
-          <p className="analysis-preview__eyebrow">Trend Intelligence</p>
+          <p className="analysis-preview__eyebrow">{t("trending.intelligence")}</p>
           <h3>{trend.label}</h3>
         </div>
         <span className={clsx("status-chip", trend.credibilityWarning ? "status-chip-danger" : "status-chip-soft")}>
-          {trend.credibilityWarning ? "Early Warning" : trend.freshness}
+          {trend.credibilityWarning ? t("trending.earlyWarning") : t(`statuses.${trend.freshness}`)}
         </span>
       </div>
 
       <div className="trend-card__stats">
         <div>
-          <span>Virality</span>
+          <span>{t("trending.virality")}</span>
           <strong>{Math.round(trend.viralityScore)}</strong>
         </div>
         <div>
-          <span>Articles</span>
+          <span>{t("trending.articles")}</span>
           <strong>{trend.articleCount}</strong>
         </div>
         <div>
-          <span>Gap</span>
+          <span>{t("trending.gap")}</span>
           <strong>{Math.round(trend.verificationGapScore)}</strong>
         </div>
       </div>
 
       <p className="article-card__summary">{trend.confidenceNote}</p>
 
+      <div className="insight-block insight-block--compact">
+        <strong>{t("trending.whyItTrends")}</strong>
+        <p>{trend.whyItTrends}</p>
+      </div>
+
+      {trend.sampleHeadlines?.length ? (
+        <div className="insight-block insight-block--compact">
+          <strong>{t("trending.sampleHeadlines")}</strong>
+          <ul>
+            {trend.sampleHeadlines.map((headline) => (
+              <li key={headline}>{headline}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <p className="analysis-subnote">{translateVerificationStatus(trend.verificationStatus, language)}</p>
+
       <div className="tips-row">
+        <span className="hint-pill">
+          {t("trending.riskLevel")}: {trend.credibilityWarning ? t("trending.earlyWarning") : translateVerificationStatus(trend.verificationStatus, language)}
+        </span>
         {trend.platformSignals.map((item) => (
           <span key={`platform-${trend.id}-${item}`} className="hint-pill">
             {item}
@@ -429,6 +855,7 @@ function TrendCard({ trend, index, onSelect, isSelected }) {
 }
 
 function AssistantPanel({
+  t,
   region,
   selectedArticle,
   selectedTrend,
@@ -438,7 +865,9 @@ function AssistantPanel({
   assistantLoading,
   assistantError,
   onSend,
+  onQuickAction,
   threadRef,
+  language,
 }) {
   const hasMessages = assistantMessages.length > 0;
 
@@ -450,14 +879,29 @@ function AssistantPanel({
             <Bot size={22} />
           </div>
           <div>
-            <h3>Assistant TruthLens</h3>
-            <p>En ligne</p>
+            <h3>{t("assistant.title")}</h3>
+            <p>{t("assistant.online")}</p>
           </div>
         </div>
       </div>
 
       <div className="assistant-thread" ref={threadRef}>
         <div className="assistant-thread__messages">
+          <div className="copilot-actions">
+            <button type="button" className="copilot-action" onClick={() => onQuickAction(t("assistant.quickExplain"))}>
+              {t("assistant.quickExplain")}
+            </button>
+            <button type="button" className="copilot-action" onClick={() => onQuickAction(t("assistant.quickVerify"))}>
+              {t("assistant.quickVerify")}
+            </button>
+            <button type="button" className="copilot-action" onClick={() => onQuickAction(t("assistant.quickCompare"))}>
+              {t("assistant.quickCompare")}
+            </button>
+            <button type="button" className="copilot-action" onClick={() => onQuickAction(t("assistant.quickRisk"))}>
+              {t("assistant.quickRisk")}
+            </button>
+          </div>
+
           {!hasMessages ? (
             <div className="assistant-message assistant-message--assistant">
               <div className="assistant-message__avatar">
@@ -465,10 +909,10 @@ function AssistantPanel({
               </div>
               <div className="assistant-message__content">
                 <div className="assistant-message__bubble">
-                  <p>{buildAssistantWelcome(region, selectedArticle, selectedTrend)}</p>
+                  <p>{buildAssistantWelcome(t, region, selectedArticle, selectedTrend)}</p>
                 </div>
                 <span className="assistant-message__time">
-                  {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  {new Date().toLocaleTimeString(language === "ar" ? "ar-MA" : "fr-MA", { hour: "2-digit", minute: "2-digit" })}
                 </span>
               </div>
             </div>
@@ -505,7 +949,7 @@ function AssistantPanel({
               </div>
               <div className="assistant-message__content">
                 <div className="assistant-message__bubble assistant-message__bubble--loading">
-                  <p>Je prepare la reponse...</p>
+                  <p>{t("assistant.loading")}</p>
                 </div>
               </div>
             </div>
@@ -524,7 +968,7 @@ function AssistantPanel({
           <textarea
             className="assistant-composer__input"
             rows={1}
-            placeholder="Posez votre question..."
+            placeholder={t("assistant.placeholder")}
             value={assistantDraft}
             onChange={(event) => setAssistantDraft(event.target.value)}
             onKeyDown={(event) => {
@@ -540,7 +984,7 @@ function AssistantPanel({
             className="assistant-send"
             onClick={onSend}
             disabled={assistantLoading}
-            aria-label="Send message"
+            aria-label={t("actions.send")}
           >
             <SendHorizontal size={18} />
           </button>
@@ -550,7 +994,7 @@ function AssistantPanel({
   );
 }
 
-function HistoricalArticleCard({ article, index, onSelect, isSelected }) {
+function HistoricalArticleCard({ article, index, onSelect, isSelected, t, language }) {
   return (
     <article
       className={clsx("article-card", "historical-card", isSelected && "article-card--selected")}
@@ -565,13 +1009,13 @@ function HistoricalArticleCard({ article, index, onSelect, isSelected }) {
       <div className="article-card__content">
         <div className="article-card__header">
           <div>
-            <p className="article-card__eyebrow">Stored Analysis</p>
+            <p className="article-card__eyebrow">{t("history.storedAnalysis")}</p>
             <h3>{article.title}</h3>
           </div>
 
           <a
             className="ghost-icon-button"
-            aria-label="Open historical article"
+            aria-label={t("actions.openArticle")}
             href={article.url}
             target="_blank"
             rel="noreferrer"
@@ -584,9 +1028,9 @@ function HistoricalArticleCard({ article, index, onSelect, isSelected }) {
         <div className="article-card__meta">
           <span>{article.source}</span>
           <span className="meta-separator">|</span>
-          <span>{article.category}</span>
+          <span>{translateCategory(article.category, language)}</span>
           <span className="meta-separator">|</span>
-          <span>{article.region === "morocco" ? "Morocco" : "World"}</span>
+          <span>{article.region === "morocco" ? t("regions.morocco") : t("regions.world")}</span>
         </div>
 
         <p className="article-card__summary">{article.summary}</p>
@@ -594,35 +1038,39 @@ function HistoricalArticleCard({ article, index, onSelect, isSelected }) {
         <div className="analysis-preview historical-card__analysis">
           <div className="analysis-preview__header">
             <div>
-              <p className="analysis-preview__eyebrow">Saved credibility analysis</p>
-              <strong>{article.badge}</strong>
+              <p className="analysis-preview__eyebrow">{t("history.savedCredibility")}</p>
+              <strong>{translateCredibilityLabel(article.badge, language)}</strong>
             </div>
             <span className={clsx("status-chip", article.badgeClass)}>{formatPercent(article.score)}</span>
           </div>
 
           <div className="analysis-metrics">
             <div className="analysis-metrics__item">
-              <span>Source</span>
+              <span>{t("article.source")}</span>
               <strong>{article.sourceScore ?? "--"}</strong>
             </div>
             <div className="analysis-metrics__item">
-              <span>Article</span>
+              <span>{t("article.articleQuality")}</span>
               <strong>{article.articleScore ?? "--"}</strong>
             </div>
             <div className="analysis-metrics__item">
-              <span>Corroboration</span>
+              <span>{t("article.corroboration")}</span>
               <strong>{article.corroborationScore ?? "--"}</strong>
             </div>
           </div>
 
           <p>{article.explanation}</p>
-          <p className="analysis-subnote">{article.verificationStatus || "Verification status unavailable"}</p>
+          <p className="analysis-subnote">
+            {article.verificationStatus
+              ? translateVerificationStatus(article.verificationStatus, language)
+              : t("history.verificationUnavailable")}
+          </p>
         </div>
 
         <div className="historical-card__timeline">
-          <span>Published: {formatDateTime(article.publishedAt)}</span>
-          <span>Stored: {formatDateTime(article.fetchedAt)}</span>
-          <span>Analyzed: {formatDateTime(article.analyzedAt)}</span>
+          <span>{t("history.published")}: {formatDateTime(article.publishedAt, language, t)}</span>
+          <span>{t("history.stored")}: {formatDateTime(article.fetchedAt, language, t)}</span>
+          <span>{t("history.analyzed")}: {formatDateTime(article.analyzedAt, language, t)}</span>
         </div>
       </div>
     </article>
@@ -630,6 +1078,9 @@ function HistoricalArticleCard({ article, index, onSelect, isSelected }) {
 }
 
 export function DashboardPage() {
+  const [theme, setTheme] = useState(getStoredTheme);
+  const [language, setLanguage] = useState(getStoredLanguage);
+  const [mobileAssistantOpen, setMobileAssistantOpen] = useState(false);
   const [activeNav, setActiveNav] = useState("dashboard");
   const [activeRegion, setActiveRegion] = useState("morocco");
   const [activeCategory, setActiveCategory] = useState("All");
@@ -657,7 +1108,7 @@ export function DashboardPage() {
   const [overviewStats, setOverviewStats] = useState(null);
   const [statsLoading, setStatsLoading] = useState(false);
 
-  const [analysisResult, setAnalysisResult] = useState(buildEmptyAnalysis());
+  const [analysisResult, setAnalysisResult] = useState(buildEmptyAnalysis(getTranslator(getStoredLanguage())));
 
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -674,6 +1125,15 @@ export function DashboardPage() {
   const [currentUser, setCurrentUser] = useState(null);
 
   const deferredSearch = useDeferredValue(searchTerm);
+  const t = useMemo(() => getTranslator(language), [language]);
+  const direction = useMemo(() => getDirection(language), [language]);
+  const regionLabels = useMemo(
+    () => ({
+      morocco: t("regions.morocco"),
+      world: t("regions.world"),
+    }),
+    [t]
+  );
 
   function pushNotification(title, message, type = "info") {
     const item = {
@@ -711,7 +1171,7 @@ export function DashboardPage() {
     setAuthToken(null);
     setCurrentUser(null);
     setShowProfilePanel(false);
-    pushNotification("Logged out", "Your session has been closed.", "info");
+    pushNotification(t("auth.logoutTitle"), t("auth.logoutMessage"), "info");
   }
 
   async function handleRegister() {
@@ -731,8 +1191,8 @@ export function DashboardPage() {
       setShowProfilePanel(false);
 
       pushNotification(
-        "Account created",
-        `Welcome ${data.user.full_name || data.user.email}`,
+        t("auth.registerSuccessTitle"),
+        t("auth.registerSuccessMessage", { user: data.user.full_name || data.user.email }),
         "success"
       );
 
@@ -762,8 +1222,8 @@ export function DashboardPage() {
       setShowProfilePanel(false);
 
       pushNotification(
-        "Login successful",
-        `Signed in as ${data.user.full_name || data.user.email}`,
+        t("auth.loginSuccessTitle"),
+        t("auth.loginSuccessMessage", { user: data.user.full_name || data.user.email }),
         "success"
       );
 
@@ -786,15 +1246,55 @@ export function DashboardPage() {
   }, []);
 
   useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+  }, [theme]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.setAttribute("lang", language);
+    root.setAttribute("dir", direction);
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
+  }, [language, direction]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia?.("(prefers-color-scheme: dark)");
+    if (!mediaQuery || window.localStorage.getItem(THEME_STORAGE_KEY)) {
+      return undefined;
+    }
+
+    const updateTheme = (event) => setTheme(event.matches ? "dark" : "light");
+    mediaQuery.addEventListener?.("change", updateTheme);
+    return () => mediaQuery.removeEventListener?.("change", updateTheme);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const handleResize = () => {
+      if (window.innerWidth > 940) {
+        setMobileAssistantOpen(false);
+      }
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  useEffect(() => {
     if (assistantMessages.length === 0) {
       setAssistantMessages([
         buildConversationMessage(
           "assistant",
-          "Bonjour! Je suis votre assistant TruthLens. Comment puis-je vous aider a verifier des informations aujourd'hui?"
+          t("assistant.welcomeDefault")
         ),
       ]);
     }
-  }, [assistantMessages.length]);
+  }, [assistantMessages.length, t]);
+
+  useEffect(() => {
+    setAnalysisResult(buildEmptyAnalysis(t));
+  }, [t]);
 
   useEffect(() => {
     async function loadCurrentUser() {
@@ -843,20 +1343,23 @@ export function DashboardPage() {
         setArticles(mapped);
 
         pushNotification(
-          "News updated",
-          `${mapped.length} article(s) loaded for ${regionLabels[activeRegion]}.`,
+          t("dashboard.newsUpdatedTitle"),
+          t("dashboard.newsUpdatedMessage", {
+            count: mapped.length,
+            region: regionLabels[activeRegion],
+          }),
           "info"
         );
       } catch (error) {
         console.error("Failed to load news:", error);
-        setNewsError("Unable to load the news feed.");
+        setNewsError(language === "ar" ? "تعذر تحميل موجز الاخبار." : "Impossible de charger le flux d'actualites.");
       } finally {
         setNewsLoading(false);
       }
     }
 
     loadNews();
-  }, [activeRegion, activeCategory]);
+  }, [activeRegion, activeCategory, language, t, regionLabels]);
 
   useEffect(() => {
     async function loadTrending() {
@@ -892,14 +1395,14 @@ export function DashboardPage() {
       } catch (error) {
         console.error("Failed to load historical news:", error);
         setHistoricalArticles([]);
-        setHistoryError("Unable to load historical news.");
+        setHistoryError(language === "ar" ? "تعذر تحميل الاخبار التاريخية." : "Impossible de charger les actualites historiques.");
       } finally {
         setHistoryLoading(false);
       }
     }
 
     loadHistoricalNews();
-  }, [activeRegion, activeCategory, deferredSearch]);
+  }, [activeRegion, activeCategory, deferredSearch, language]);
 
   useEffect(() => {
     async function loadStats() {
@@ -959,6 +1462,7 @@ export function DashboardPage() {
         selected_trend_verification_gap_score: selectedTrend?.verificationGapScore,
         region_focus: regionLabels[activeRegion],
         active_view: activeNav,
+        ui_language: language,
         morocco_trends: trendingTopics
           .filter((topic) => topic.region === "morocco")
           .slice(0, 6)
@@ -997,20 +1501,20 @@ export function DashboardPage() {
             verification_tips: result.analysis_snapshot.verification_tips,
             input_type: result.analysis_snapshot.input_type,
             source_profile: result.analysis_snapshot.source_profile,
-          })
+          }, t)
         );
       }
 
-      pushNotification("Assistant pret", "TruthLens Assistant a repondu.", "info");
+      pushNotification(t("assistant.readyNotificationTitle"), t("assistant.readyNotificationMessage"), "info");
     } catch (error) {
       console.error("Assistant request failed:", error);
-      setAssistantError("L'assistant ne peut pas repondre pour le moment.");
+      setAssistantError(t("assistant.unavailable"));
 
       setAssistantMessages((prev) => [
         ...prev,
         buildConversationMessage(
           "assistant",
-          "Je ne peux pas repondre pour le moment. Reessayez dans un instant ou selectionnez un article pour me donner plus de contexte.",
+          t("assistant.unavailableReply"),
           {
             model: "unavailable",
             intent: "error",
@@ -1018,7 +1522,7 @@ export function DashboardPage() {
         ),
       ]);
 
-      pushNotification("Assistant indisponible", "La requete assistant a echoue.", "danger");
+      pushNotification(t("assistant.failedNotificationTitle"), t("assistant.failedNotificationMessage"), "danger");
     } finally {
       setAssistantLoading(false);
     }
@@ -1082,23 +1586,100 @@ export function DashboardPage() {
   }, [articleCategories, articles, activeRegion]);
 
   const activity = useMemo(
-    () => buildActivityFromStats(overviewStats, visibleTrending.length),
-    [overviewStats, visibleTrending.length]
+    () =>
+      buildActivityFromStats(
+        overviewStats,
+        trendingTopics.filter((topic) => topic.region === activeRegion).length
+      ),
+    [overviewStats, trendingTopics, activeRegion]
   );
 
+  const relatedArticles = useMemo(
+    () =>
+      findRelatedArticles({
+        selectedArticle,
+        selectedTrend,
+        articles: articles.filter(
+          (article) =>
+            article.region === activeRegion &&
+            (activeCategory === "All" || article.category === activeCategory)
+        ),
+        historicalArticles,
+      }),
+    [selectedArticle, selectedTrend, articles, historicalArticles, activeRegion, activeCategory]
+  );
+
+  const confidenceCard = useMemo(
+    () =>
+      buildConfidenceCardData({
+        selectedArticle,
+        analysisResult,
+        t,
+        language,
+      }),
+    [selectedArticle, analysisResult, t, language]
+  );
+
+  const narrativeComparison = useMemo(
+    () =>
+      buildNarrativeComparisonData({
+        selectedArticle,
+        selectedTrend,
+        relatedArticles,
+        t,
+        language,
+      }),
+    [selectedArticle, selectedTrend, relatedArticles, t, language]
+  );
+
+  const timelineData = useMemo(
+    () => buildTimelineData({ selectedArticle, relatedArticles, language, t }),
+    [selectedArticle, relatedArticles, language, t]
+  );
+
+  const crisisModeActive = useMemo(
+    () => isCrisisSignal(selectedArticle, selectedTrend),
+    [selectedArticle, selectedTrend]
+  );
+
+  const enrichedTrending = useMemo(
+    () =>
+      trendingTopics
+        .filter((trend) => trend.region === activeRegion)
+        .map((trend) => ({
+        ...trend,
+        whyItTrends: t("trending.trendReason"),
+        sampleHeadlines: getTrendSampleHeadlines(trend, articles, historicalArticles),
+      })),
+    [trendingTopics, activeRegion, t, articles, historicalArticles]
+  );
+
+  const displayFocus = activeCategory === "All" ? t("dashboard.allCategories") : translateCategory(activeCategory, language);
+
   return (
-    <main className="dashboard-shell">
-      <aside className="assistant-sidebar">
+    <main className="dashboard-shell" data-rtl={direction === "rtl"}>
+      {mobileAssistantOpen ? (
+        <button
+          type="button"
+          className="assistant-mobile-backdrop"
+          aria-label={t("actions.closeAssistant")}
+          onClick={() => setMobileAssistantOpen(false)}
+        />
+      ) : null}
+
+      <aside className={clsx("assistant-sidebar", mobileAssistantOpen && "assistant-sidebar--mobile-open")}>
         <div className="brand-mark">
           <div className="brand-mark__logo">
             <img src="/truthlens-logo.png" alt="TruthLens logo" className="brand-mark__logo-image" />
           </div>
           <div>
             <h1>TruthLens</h1>
+            <p>{t("app.monitoringStudio")}</p>
           </div>
         </div>
 
         <AssistantPanel
+          t={t}
           region={activeRegion}
           selectedArticle={selectedArticle}
           selectedTrend={selectedTrend}
@@ -1108,12 +1689,14 @@ export function DashboardPage() {
           assistantLoading={assistantLoading}
           assistantError={assistantError}
           onSend={() => sendAssistantMessage()}
+          onQuickAction={(prompt) => sendAssistantMessage(prompt)}
           threadRef={assistantThreadRef}
+          language={language}
         />
 
         <div className="sidebar-footer">
-          <p>TruthLens v1.0</p>
-          <span>{currentUser ? "Signed in" : "Gemini-ready assistant"}</span>
+          <p>{t("app.version")}</p>
+          <span>{currentUser ? t("app.signedIn") : t("app.assistantReady")}</span>
         </div>
       </aside>
 
@@ -1123,7 +1706,7 @@ export function DashboardPage() {
             <Search size={22} />
             <input
               type="search"
-              placeholder="Search news, sources, topics..."
+              placeholder={t("topbar.searchPlaceholder")}
               value={searchTerm}
               onChange={(event) => setSearchTerm(event.target.value)}
             />
@@ -1132,7 +1715,34 @@ export function DashboardPage() {
           <div className="topbar-actions">
             <button
               className="ghost-icon-button"
-              aria-label="Notifications"
+              aria-label={t("actions.changeTheme")}
+              onClick={() => setTheme((prev) => (prev === "dark" ? "light" : "dark"))}
+              title={`${t("actions.changeTheme")}: ${theme === "dark" ? t("theme.dark") : t("theme.light")}`}
+            >
+              {theme === "dark" ? <Sun size={20} /> : <Moon size={20} />}
+            </button>
+
+            <div className="language-switch" role="group" aria-label={t("language.switcher")}>
+              <button
+                type="button"
+                className={clsx("language-switch__button", language === "fr" && "is-active")}
+                onClick={() => setLanguage("fr")}
+              >
+                <Languages size={16} />
+                <span>{t("language.fr")}</span>
+              </button>
+              <button
+                type="button"
+                className={clsx("language-switch__button", language === "ar" && "is-active")}
+                onClick={() => setLanguage("ar")}
+              >
+                <span>{t("language.ar")}</span>
+              </button>
+            </div>
+
+            <button
+              className="ghost-icon-button"
+              aria-label={t("topbar.notifications")}
               onClick={openNotifications}
             >
               <Bell size={20} />
@@ -1141,13 +1751,22 @@ export function DashboardPage() {
 
             <button
               className="ghost-icon-button"
-              aria-label="Profile"
+              aria-label={t("topbar.profile")}
               onClick={openProfilePanel}
             >
               <UserRound size={20} />
             </button>
           </div>
         </header>
+
+        <button
+          type="button"
+          className="assistant-mobile-toggle"
+          onClick={() => setMobileAssistantOpen(true)}
+        >
+          <Bot size={18} />
+          <span>{t("assistant.title")}</span>
+        </button>
 
         <nav className="top-nav" aria-label="Top navigation">
           {navigationItems.map((item) => {
@@ -1162,7 +1781,7 @@ export function DashboardPage() {
                 onClick={() => setActiveNav(item.id)}
               >
                 <Icon size={18} />
-                <span>{item.label}</span>
+                <span>{t(`nav.${item.id}`)}</span>
               </button>
             );
           })}
@@ -1172,26 +1791,30 @@ export function DashboardPage() {
           <>
             <section className="hero-card">
               <div>
-                <p className="hero-card__kicker">Real-time credibility analysis</p>
-                <h2>Viral News Monitor</h2>
-                <p className="hero-card__subtitle">
-                  Live Morocco and World coverage with credibility badges,
-                  hybrid trend intelligence, and an integrated verification assistant.
-                </p>
+                <p className="hero-card__kicker">{t("dashboard.kicker")}</p>
+                <h2>{t("dashboard.title")}</h2>
+                <p className="hero-card__subtitle">{t("dashboard.subtitle")}</p>
               </div>
 
               <div className="hero-card__status">
                 <span className="status-chip status-chip-soft">
                   <Sparkles size={14} />
-                  Backend live data
+                  {t("dashboard.liveData")}
                 </span>
                 <span className="hero-card__note">
                   {overviewStats?.last_refresh_batch
-                    ? `Last refresh: ${overviewStats.last_refresh_batch}`
-                    : "Backend FastAPI + SQLite + JWT connected"}
+                    ? t("dashboard.lastRefresh", { batch: overviewStats.last_refresh_batch })
+                    : t("dashboard.backendConnected")}
                 </span>
               </div>
             </section>
+
+            <div className="insight-grid insight-grid--top">
+              <WhyNowCard t={t} checksToday={overviewStats?.checks_today ?? 0} />
+              <ConfidenceCard t={t} data={confidenceCard} />
+            </div>
+
+            {crisisModeActive ? <CrisisBanner t={t} /> : null}
 
             <div className="content-toolbar">
               <div className="toggle-pill">
@@ -1222,19 +1845,19 @@ export function DashboardPage() {
                   )}
                   onClick={() => setActiveCategory(category)}
                 >
-                  {category}
+                  {translateCategory(category, language)}
                 </button>
               ))}
             </div>
 
             <div className="results-caption">
-              <span>
-                {visibleArticles.length} story{visibleArticles.length > 1 ? "ies" : "y"} for{" "}
-                {regionLabels[activeRegion]}
-              </span>
-              <span>
-                Focus: {activeCategory === "All" ? "All categories" : activeCategory}
-              </span>
+              <span>{t("dashboard.resultsCount", { count: visibleArticles.length, region: regionLabels[activeRegion] })}</span>
+              <span>{t("dashboard.focus", { value: displayFocus })}</span>
+            </div>
+
+            <div className="insight-grid insight-grid--secondary">
+              <NarrativeCard t={t} comparison={narrativeComparison} />
+              <TimelineCard t={t} timeline={timelineData} />
             </div>
 
             <div className="news-list">
@@ -1242,15 +1865,15 @@ export function DashboardPage() {
                 <div className="empty-state">
                   <CheckCircle2 size={28} />
                   <div>
-                    <h3>Loading news...</h3>
-                    <p>The dashboard is loading live news from the backend.</p>
+                    <h3>{t("dashboard.loadingTitle")}</h3>
+                    <p>{t("dashboard.loadingMessage")}</p>
                   </div>
                 </div>
               ) : newsError ? (
                 <div className="empty-state">
                   <CheckCircle2 size={28} />
                   <div>
-                    <h3>Loading error</h3>
+                    <h3>{t("dashboard.errorTitle")}</h3>
                     <p>{newsError}</p>
                   </div>
                 </div>
@@ -1260,6 +1883,8 @@ export function DashboardPage() {
                     key={article.id}
                     article={article}
                     index={index}
+                    t={t}
+                    language={language}
                     onSelect={(item) => {
                       setSelectedArticle(item);
                       setSelectedTrend(null);
@@ -1271,11 +1896,8 @@ export function DashboardPage() {
                 <div className="empty-state">
                   <CheckCircle2 size={28} />
                   <div>
-                    <h3>No results for this filter set</h3>
-                    <p>
-                      Try a different search or switch back to the All view to
-                      keep exploring.
-                    </p>
+                    <h3>{t("dashboard.noResultsTitle")}</h3>
+                    <p>{t("dashboard.noResultsMessage")}</p>
                   </div>
                 </div>
               )}
@@ -1287,17 +1909,17 @@ export function DashboardPage() {
           <>
             <section className="hero-card">
               <div>
-                <p className="hero-card__kicker">Trending overview</p>
-                <h2>Trending Topics</h2>
+                <p className="hero-card__kicker">{t("trending.kicker")}</p>
+                <h2>{t("trending.title")}</h2>
                 <p className="hero-card__subtitle">
-                  A quick view of the most active topics for {regionLabels[activeRegion]}.
+                  {t("trending.subtitle", { region: regionLabels[activeRegion] })}
                 </p>
               </div>
 
               <div className="hero-card__status">
                 <span className="status-chip status-chip-soft">
                   <Sparkles size={14} />
-                  Live topic snapshot
+                  {t("trending.liveSnapshot")}
                 </span>
               </div>
             </section>
@@ -1325,16 +1947,18 @@ export function DashboardPage() {
                 <div className="empty-state">
                   <CheckCircle2 size={28} />
                   <div>
-                    <h3>Loading trends...</h3>
-                    <p>Trending topics are loading from the backend.</p>
+                    <h3>{t("trending.loadingTitle")}</h3>
+                    <p>{t("trending.loadingMessage")}</p>
                   </div>
                 </div>
-              ) : visibleTrending.length > 0 ? (
-                visibleTrending.map((topic, index) => (
+              ) : enrichedTrending.length > 0 ? (
+                enrichedTrending.map((topic, index) => (
                   <TrendCard
                     key={topic.id}
                     index={index}
                     trend={topic}
+                    t={t}
+                    language={language}
                     onSelect={(item) => {
                       setSelectedTrend(item);
                       setSelectedArticle(null);
@@ -1346,8 +1970,8 @@ export function DashboardPage() {
                 <div className="empty-state">
                   <CheckCircle2 size={28} />
                   <div>
-                    <h3>No trending topics</h3>
-                    <p>No trending topics are available for this region yet.</p>
+                    <h3>{t("trending.emptyTitle")}</h3>
+                    <p>{t("trending.emptyMessage")}</p>
                   </div>
                 </div>
               )}
@@ -1359,20 +1983,18 @@ export function DashboardPage() {
           <>
             <section className="hero-card">
               <div>
-                <p className="hero-card__kicker">Archive intelligence</p>
-                <h2>Historical News</h2>
-                <p className="hero-card__subtitle">
-                  Stored news from SQLite with the saved credibility analysis for each article.
-                </p>
+                <p className="hero-card__kicker">{t("history.kicker")}</p>
+                <h2>{t("history.title")}</h2>
+                <p className="hero-card__subtitle">{t("history.subtitle")}</p>
               </div>
 
               <div className="hero-card__status">
                 <span className="status-chip status-chip-soft">
                   <Sparkles size={14} />
-                  Stored analysis feed
+                  {t("history.storedFeed")}
                 </span>
                 <span className="hero-card__note">
-                  {historicalArticles.length} archived article(s) for {regionLabels[activeRegion]}
+                  {t("history.archivedCount", { count: historicalArticles.length, region: regionLabels[activeRegion] })}
                 </span>
               </div>
             </section>
@@ -1403,21 +2025,17 @@ export function DashboardPage() {
                       "category-pill",
                       activeCategory === category && "is-active"
                     )}
-                    onClick={() => setActiveCategory(category)}
-                  >
-                    {category}
-                  </button>
-                ))}
-              </div>
+                  onClick={() => setActiveCategory(category)}
+                >
+                  {translateCategory(category, language)}
+                </button>
+              ))}
             </div>
+          </div>
 
-            <div className="content-toolbar" style={{ marginTop: "0" }}>
-              <span>
-                Search scope: {deferredSearch ? `"${deferredSearch}"` : "all stored coverage"}
-              </span>
-              <span>
-                Focus: {activeCategory === "All" ? "all categories" : activeCategory}
-              </span>
+          <div className="content-toolbar" style={{ marginTop: "0" }}>
+              <span>{t("history.searchScope", { value: deferredSearch ? `"${deferredSearch}"` : t("history.allStoredCoverage") })}</span>
+              <span>{t("dashboard.focus", { value: displayFocus })}</span>
             </div>
 
             <div className="news-list">
@@ -1425,15 +2043,15 @@ export function DashboardPage() {
                 <div className="empty-state">
                   <CheckCircle2 size={28} />
                   <div>
-                    <h3>Loading historical news...</h3>
-                    <p>The stored archive is loading from the backend.</p>
+                    <h3>{t("history.loadingTitle")}</h3>
+                    <p>{t("history.loadingMessage")}</p>
                   </div>
                 </div>
               ) : historyError ? (
                 <div className="empty-state">
                   <CheckCircle2 size={28} />
                   <div>
-                    <h3>Archive loading error</h3>
+                    <h3>{t("history.errorTitle")}</h3>
                     <p>{historyError}</p>
                   </div>
                 </div>
@@ -1443,6 +2061,8 @@ export function DashboardPage() {
                     key={`history-${article.id}`}
                     article={article}
                     index={index}
+                    t={t}
+                    language={language}
                     onSelect={(item) => {
                       setSelectedArticle(item);
                       setSelectedTrend(null);
@@ -1454,8 +2074,8 @@ export function DashboardPage() {
                 <div className="empty-state">
                   <CheckCircle2 size={28} />
                   <div>
-                    <h3>No historical news found</h3>
-                    <p>Try another search or switch region/category to explore the stored archive.</p>
+                    <h3>{t("history.emptyTitle")}</h3>
+                    <p>{t("history.emptyMessage")}</p>
                   </div>
                 </div>
               )}
@@ -1467,17 +2087,15 @@ export function DashboardPage() {
           <>
             <section className="hero-card">
               <div>
-                <p className="hero-card__kicker">Category overview</p>
-                <h2>Categories</h2>
-                <p className="hero-card__subtitle">
-                  Distribution of backend news coverage by category.
-                </p>
+                <p className="hero-card__kicker">{t("categories.kicker")}</p>
+                <h2>{t("categories.title")}</h2>
+                <p className="hero-card__subtitle">{t("categories.subtitle")}</p>
               </div>
 
               <div className="hero-card__status">
                 <span className="status-chip status-chip-soft">
                   <Sparkles size={14} />
-                  Backend category snapshot
+                  {t("categories.snapshot")}
                 </span>
               </div>
             </section>
@@ -1505,19 +2123,20 @@ export function DashboardPage() {
                 categorySummary.map((item, index) => (
                   <SummaryCard
                     key={item.label}
-                    eyebrow="Category"
-                    title={item.label}
-                    description="Number of articles currently available in this category."
+                    eyebrow={t("categories.category")}
+                    title={translateCategory(item.label, language)}
+                    description={t("categories.description")}
                     value={item.value}
                     index={index}
+                    t={t}
                   />
                 ))
               ) : (
                 <div className="empty-state">
                   <CheckCircle2 size={28} />
                   <div>
-                    <h3>No category data</h3>
-                    <p>No category data is available for the selected region.</p>
+                    <h3>{t("categories.noDataTitle")}</h3>
+                    <p>{t("categories.noDataMessage")}</p>
                   </div>
                 </div>
               )}
@@ -1529,17 +2148,15 @@ export function DashboardPage() {
           <>
             <section className="hero-card">
               <div>
-                <p className="hero-card__kicker">System metrics</p>
-                <h2>Statistics</h2>
-                <p className="hero-card__subtitle">
-                  System activity, verification volume, and monitoring metrics.
-                </p>
+                <p className="hero-card__kicker">{t("statistics.kicker")}</p>
+                <h2>{t("statistics.title")}</h2>
+                <p className="hero-card__subtitle">{t("statistics.subtitle")}</p>
               </div>
 
               <div className="hero-card__status">
                 <span className="status-chip status-chip-soft">
                   <Sparkles size={14} />
-                  SQLite metrics
+                  {t("statistics.sqliteMetrics")}
                 </span>
               </div>
             </section>
@@ -1548,7 +2165,7 @@ export function DashboardPage() {
               <div className="side-card__header">
                 <div className="section-title">
                   <Activity size={20} />
-                  <h3>Today&apos;s Activity</h3>
+                  <h3>{t("statistics.todayActivity")}</h3>
                 </div>
               </div>
 
@@ -1593,22 +2210,22 @@ export function DashboardPage() {
               <div className="activity-summary">
                 <div>
                   <strong>{statsLoading ? "..." : overviewStats?.total_articles ?? 0}</strong>
-                  <span>articles currently loaded</span>
+                  <span>{t("statistics.articlesLoaded")}</span>
                 </div>
                 <div>
                   <strong>{statsLoading ? "..." : overviewStats?.suspicious_count ?? 0}</strong>
-                  <span>stories flagged for review</span>
+                  <span>{t("statistics.storiesFlagged")}</span>
                 </div>
               </div>
 
               <div className="activity-summary" style={{ marginTop: "14px" }}>
                 <div>
                   <strong>{statsLoading ? "..." : overviewStats?.morocco_articles ?? 0}</strong>
-                  <span>Morocco articles</span>
+                  <span>{t("statistics.moroccoArticles")}</span>
                 </div>
                 <div>
                   <strong>{statsLoading ? "..." : overviewStats?.world_articles ?? 0}</strong>
-                  <span>World articles</span>
+                  <span>{t("statistics.worldArticles")}</span>
                 </div>
               </div>
             </section>
@@ -1632,10 +2249,11 @@ export function DashboardPage() {
             style={{
               position: "fixed",
               top: "88px",
-              right: "32px",
+              right: direction === "rtl" ? "auto" : "32px",
+              left: direction === "rtl" ? "32px" : "auto",
               width: "340px",
-              background: "#fff",
-              border: "1px solid #eceef3",
+              background: "var(--panel-strong)",
+              border: "1px solid var(--border)",
               borderRadius: "20px",
               boxShadow: "0 20px 50px rgba(15, 23, 42, 0.18)",
               padding: "16px",
@@ -1650,24 +2268,24 @@ export function DashboardPage() {
                 marginBottom: "12px",
               }}
             >
-              <strong>Notifications</strong>
+              <strong>{t("notifications.title")}</strong>
               <button
                 onClick={() => setNotifications([])}
                 style={{
                   background: "transparent",
                   border: "none",
                   cursor: "pointer",
-                  color: "#64748b",
+                  color: "var(--muted)",
                   fontWeight: 600,
                 }}
               >
-                Clear
+                {t("actions.clear")}
               </button>
             </div>
 
             {notifications.length === 0 ? (
-              <p style={{ color: "#738197", fontSize: "14px", margin: 0 }}>
-                No notifications yet.
+              <p style={{ color: "var(--muted)", fontSize: "14px", margin: 0 }}>
+                {t("notifications.empty")}
               </p>
             ) : (
               <div style={{ display: "grid", gap: "10px", maxHeight: "320px", overflowY: "auto" }}>
@@ -1677,13 +2295,13 @@ export function DashboardPage() {
                     style={{
                       padding: "12px",
                       borderRadius: "14px",
-                      background: "#f8fafc",
-                      border: "1px solid #edf1f6",
+                      background: "var(--surface)",
+                      border: "1px solid var(--border)",
                     }}
                   >
                     <strong style={{ display: "block", marginBottom: "4px" }}>{item.title}</strong>
-                    <p style={{ margin: 0, color: "#516079", fontSize: "14px" }}>{item.message}</p>
-                    <span style={{ fontSize: "12px", color: "#94a3b8" }}>{item.createdAt}</span>
+                    <p style={{ margin: 0, color: "var(--text-soft)", fontSize: "14px" }}>{item.message}</p>
+                    <span style={{ fontSize: "12px", color: "var(--muted)" }}>{item.createdAt}</span>
                   </div>
                 ))}
               </div>
@@ -1711,8 +2329,8 @@ export function DashboardPage() {
               left: "50%",
               transform: "translate(-50%, -50%)",
               width: "min(92vw, 440px)",
-              background: "#fff",
-              border: "1px solid #eceef3",
+              background: "var(--panel-strong)",
+              border: "1px solid var(--border)",
               borderRadius: "24px",
               boxShadow: "0 28px 60px rgba(15, 23, 42, 0.18)",
               padding: "20px",
@@ -1722,7 +2340,7 @@ export function DashboardPage() {
             {currentUser ? (
               <div style={{ display: "grid", gap: "14px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <strong>Connected user</strong>
+                  <strong>{t("auth.connectedUser")}</strong>
                   <button
                     onClick={closeOverlays}
                     style={{
@@ -1730,16 +2348,16 @@ export function DashboardPage() {
                       border: "none",
                       cursor: "pointer",
                       fontSize: "18px",
-                      color: "#64748b",
+                      color: "var(--muted)",
                     }}
                   >
-                    x
+                    <X size={16} />
                   </button>
                 </div>
 
-                <div style={{ color: "#516079", display: "grid", gap: "6px" }}>
-                  <div><strong>Email:</strong> {currentUser.email}</div>
-                  <div><strong>Name:</strong> {currentUser.full_name || "Not provided"}</div>
+                <div style={{ color: "var(--text-soft)", display: "grid", gap: "6px" }}>
+                  <div><strong>{t("auth.email")}:</strong> {currentUser.email}</div>
+                  <div><strong>{t("auth.name")}:</strong> {currentUser.full_name || t("auth.notProvided")}</div>
                 </div>
 
                 <button
@@ -1747,7 +2365,7 @@ export function DashboardPage() {
                   type="button"
                   onClick={logoutUser}
                 >
-                  Logout
+                  {t("actions.logout")}
                 </button>
               </div>
             ) : (
@@ -1762,7 +2380,7 @@ export function DashboardPage() {
                         setAuthError("");
                       }}
                     >
-                      Login
+                      {t("actions.login")}
                     </button>
                     <button
                       type="button"
@@ -1772,7 +2390,7 @@ export function DashboardPage() {
                         setAuthError("");
                       }}
                     >
-                      Sign up
+                      {t("actions.signup")}
                     </button>
                   </div>
 
@@ -1783,17 +2401,17 @@ export function DashboardPage() {
                       border: "none",
                       cursor: "pointer",
                       fontSize: "18px",
-                      color: "#64748b",
+                      color: "var(--muted)",
                     }}
                   >
-                    x
+                    <X size={16} />
                   </button>
                 </div>
 
                 {authMode === "register" && (
                   <input
                     type="text"
-                    placeholder="Full name"
+                    placeholder={t("auth.fullNamePlaceholder")}
                     value={authFullName}
                     onChange={(e) => setAuthFullName(e.target.value)}
                     className="fact-check-input"
@@ -1803,7 +2421,7 @@ export function DashboardPage() {
 
                 <input
                   type="email"
-                  placeholder="Email"
+                  placeholder={t("auth.emailPlaceholder")}
                   value={authEmail}
                   onChange={(e) => setAuthEmail(e.target.value)}
                   className="fact-check-input"
@@ -1812,7 +2430,7 @@ export function DashboardPage() {
 
                 <input
                   type="password"
-                  placeholder="Password"
+                  placeholder={t("auth.passwordPlaceholder")}
                   value={authPassword}
                   onChange={(e) => setAuthPassword(e.target.value)}
                   className="fact-check-input"
@@ -1832,10 +2450,10 @@ export function DashboardPage() {
                   disabled={authLoading}
                 >
                   {authLoading
-                    ? "Please wait..."
+                    ? t("auth.pleaseWait")
                     : authMode === "login"
-                    ? "Login"
-                    : "Create account"}
+                    ? t("actions.login")
+                    : t("actions.signup")}
                 </button>
               </div>
             )}

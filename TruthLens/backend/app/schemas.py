@@ -89,6 +89,10 @@ class TrendingTopic(BaseModel):
     title: Optional[str] = None
     normalized_topic: Optional[str] = None
     region: str
+    platform: Optional[str] = None
+    media_type: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+    source_url: Optional[str] = None
     intensity: int
     article_count: int
     freshness: str
@@ -102,6 +106,7 @@ class TrendingTopic(BaseModel):
     verification_gap_score: float = 0
     freshness_label: Optional[str] = None
     confidence_note: Optional[str] = None
+    verification_status: Optional[str] = None
 
 
 class RefreshLog(BaseModel):
@@ -120,6 +125,7 @@ class OverviewStats(BaseModel):
     world_articles: int
     reliable_count: int
     suspicious_count: int
+    checks_today: int = 0
     last_refresh_batch: Optional[str] = None
     last_refresh_at: Optional[str] = None
 
@@ -150,6 +156,7 @@ class TokenResponse(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
+    ui_language: Optional[str] = None
     article_title: Optional[str] = None
     article_summary: Optional[str] = None
     article_score: Optional[int] = None

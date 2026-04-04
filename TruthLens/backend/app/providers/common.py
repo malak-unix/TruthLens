@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from html import unescape
+import logging
 from typing import Optional
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 import re
@@ -9,11 +10,14 @@ import re
 import requests
 
 from app.analyzer import analyze_payload
+from app.content_extractor import extract_article_from_url
+from app.config import get_settings
 from app.priority_topics import PriorityTopicBundle, bundle_match_score, match_priority_topics
 from app.source_registry import get_source_profile
 
 
 USER_AGENT = "TruthLens/1.0"
+logger = logging.getLogger("truthlens.providers")
 TRACKING_PARAMS = {
     "utm_source",
     "utm_medium",
@@ -123,8 +127,28 @@ def request_json(url: str, params: dict, timeout: int) -> dict | None:
         )
         response.raise_for_status()
         return response.json()
-    except (requests.RequestException, ValueError):
+    except requests.RequestException as exc:
+        logger.warning("[TruthLens Providers] request failed url=%s error=%s params=%s", url, exc, params)
         return None
+    except ValueError as exc:
+        logger.warning("[TruthLens Providers] invalid json url=%s error=%s", url, exc)
+        return None
+
+
+def resolve_image_url(article_url: str, provider_image_url: str | None) -> str:
+    normalized = normalize_image_url(provider_image_url)
+    if normalized:
+        return normalized
+
+    settings = get_settings()
+    if not settings.enable_og_image_fallback or not article_url:
+        return ""
+
+    extracted = extract_article_from_url(article_url)
+    if extracted.get("status") != "ok":
+        return ""
+
+    return normalize_image_url(extracted.get("image_url"))
 
 
 def is_morocco_relevant(title: str, description: str, url: str, source_name: str) -> bool:
@@ -258,7 +282,7 @@ def normalize_article(
         "country": region,
         "category": category,
         "url": clean_url,
-        "image_url": normalize_image_url(image_url),
+        "image_url": resolve_image_url(clean_url, image_url),
         "description": clean_description,
         "credibility_score": analysis["credibility_score"],
         "credibility_label": analysis["credibility_label"],

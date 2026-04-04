@@ -1,3 +1,4 @@
+from functools import lru_cache
 from urllib.parse import urlparse
 
 import requests
@@ -15,6 +16,7 @@ def clean_text(value: str) -> str:
     return " ".join((value or "").split())
 
 
+@lru_cache(maxsize=256)
 def extract_article_from_url(url: str) -> dict:
     settings = get_settings()
 
@@ -26,6 +28,7 @@ def extract_article_from_url(url: str) -> dict:
         "text": "",
         "author": "",
         "published_at": "",
+        "image_url": "",
         "status": "not_fetched",
         "error": None,
     }
@@ -38,7 +41,7 @@ def extract_article_from_url(url: str) -> dict:
         response = requests.get(
             url,
             headers=headers,
-            timeout=settings.request_timeout_seconds,
+            timeout=settings.image_metadata_timeout_seconds,
         )
         response.raise_for_status()
     except requests.RequestException as exc:
@@ -82,6 +85,23 @@ def extract_article_from_url(url: str) -> dict:
             published_at = published_tag["content"].strip()
             break
 
+    image_url = ""
+    for attrs in (
+        {"property": "og:image"},
+        {"name": "og:image"},
+        {"name": "twitter:image"},
+        {"property": "twitter:image"},
+    ):
+        image_tag = soup.find("meta", attrs=attrs)
+        if image_tag and image_tag.get("content"):
+            image_url = image_tag["content"].strip()
+            break
+
+    if not image_url:
+        link_tag = soup.find("link", attrs={"rel": "image_src"})
+        if link_tag and link_tag.get("href"):
+            image_url = link_tag["href"].strip()
+
     paragraphs = []
     for p in soup.find_all("p"):
         text = clean_text(p.get_text(" ", strip=True))
@@ -95,6 +115,7 @@ def extract_article_from_url(url: str) -> dict:
     result["text"] = clean_text(article_text)
     result["author"] = clean_text(author)
     result["published_at"] = clean_text(published_at)
+    result["image_url"] = clean_text(image_url)
     result["status"] = "ok"
 
     return result

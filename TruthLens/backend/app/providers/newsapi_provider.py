@@ -15,37 +15,39 @@ def fetch_general(request: FetchRequest) -> list[dict]:
         return []
 
     from_date = (datetime.now(timezone.utc) - timedelta(days=2)).date().isoformat()
-
-    if request.region == "ma":
-        params = {
-            "apiKey": settings.newsapi_api_key,
-            "q": "Morocco OR Rabat OR Casablanca OR Tangier OR Marrakech",
-            "language": "en",
-            "sortBy": "publishedAt",
-            "pageSize": request.limit,
-            "from": from_date,
-            "searchIn": "title,description",
-        }
-    else:
-        params = {
-            "apiKey": settings.newsapi_api_key,
-            "q": "world OR international OR global crisis OR diplomacy",
-            "language": "en",
-            "sortBy": "publishedAt",
-            "pageSize": request.limit,
-            "from": from_date,
-            "searchIn": "title,description",
-        }
-
-    data = request_json(
-        f"{BASE_URL}/everything",
-        params=params,
-        timeout=settings.request_timeout_seconds,
+    queries = (
+        [
+            "Morocco OR Rabat OR Casablanca OR Tangier OR Marrakech",
+            "Morocco economy OR Morocco politics OR Morocco technology OR Morocco health",
+        ]
+        if request.region == "ma"
+        else [
+            "world OR international OR global crisis OR diplomacy",
+            "conflict OR ceasefire OR humanitarian crisis OR elections OR technology",
+        ]
     )
-    if not data:
-        return []
 
-    return _normalize_articles(data.get("articles", []), request)
+    items = []
+    for query in queries:
+        params = {
+            "apiKey": settings.newsapi_api_key,
+            "q": query,
+            "language": "en",
+            "sortBy": "publishedAt",
+            "pageSize": request.limit,
+            "from": from_date,
+            "searchIn": "title,description",
+        }
+        data = request_json(
+            f"{BASE_URL}/everything",
+            params=params,
+            timeout=settings.request_timeout_seconds,
+        )
+        if not data:
+            continue
+        items.extend(_normalize_articles(data.get("articles", []), request))
+
+    return items
 
 
 def fetch_priority(request: FetchRequest) -> list[dict]:
@@ -65,7 +67,7 @@ def fetch_priority(request: FetchRequest) -> list[dict]:
         "q": query,
         "language": "en",
         "sortBy": "publishedAt",
-        "pageSize": request.limit,
+        "pageSize": max(request.limit, 12),
         "from": from_date,
         "searchIn": "title,description",
     }

@@ -7,6 +7,7 @@ import re
 from app.config import get_settings
 from app.database import (
     get_connection,
+    prune_old_news,
     save_refresh_log,
     store_trending_topics,
     upsert_news_items,
@@ -429,6 +430,7 @@ def run_ingestion_pipeline(batch_label: str) -> dict:
     cursor = conn.cursor()
 
     inserted_count, duplicate_count = upsert_news_items(cursor, ranked_items, batch_label)
+    pruned_count = prune_old_news(cursor, get_settings().news_history_retention_days)
 
     if trending_topics:
         store_trending_topics(cursor, trending_topics)
@@ -462,4 +464,6 @@ def run_ingestion_pipeline(batch_label: str) -> dict:
         "priority_topic_count": dict(priority_topic_counter),
         "url_duplicates_removed": duplicate_stats["url_duplicates_removed"],
         "title_duplicates_removed": duplicate_stats["title_duplicates_removed"],
+        "pruned_count": pruned_count,
+        "trend_provider_summary": trend_provider_summary,
     }

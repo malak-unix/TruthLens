@@ -133,6 +133,11 @@ def init_db():
     _ensure_column(cursor, "trending_topics", "verification_gap_score", "REAL DEFAULT 0")
     _ensure_column(cursor, "trending_topics", "freshness_label", "TEXT DEFAULT 'active'")
     _ensure_column(cursor, "trending_topics", "confidence_note", "TEXT DEFAULT ''")
+    _ensure_column(cursor, "trending_topics", "platform", "TEXT DEFAULT 'news'")
+    _ensure_column(cursor, "trending_topics", "media_type", "TEXT DEFAULT 'text'")
+    _ensure_column(cursor, "trending_topics", "thumbnail_url", "TEXT DEFAULT ''")
+    _ensure_column(cursor, "trending_topics", "source_url", "TEXT DEFAULT ''")
+    _ensure_column(cursor, "trending_topics", "verification_status", "TEXT DEFAULT 'unverified'")
 
     cursor.execute(
         """
@@ -256,8 +261,9 @@ def store_trending_topics(cursor, topics: list[dict]):
                 topic, title, normalized_topic, region, intensity, article_count, freshness,
                 credibility_warning, source_signals, platform_signals, related_articles_count,
                 recency_score, virality_score, verification_score, verification_gap_score,
-                freshness_label, confidence_note, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                freshness_label, confidence_note, platform, media_type, thumbnail_url,
+                source_url, verification_status, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """,
             (
                 topic["topic"],
@@ -277,6 +283,11 @@ def store_trending_topics(cursor, topics: list[dict]):
                 topic.get("verification_gap_score", 0),
                 topic.get("freshness_label", topic["freshness"]),
                 topic.get("confidence_note", ""),
+                topic.get("platform", "news"),
+                topic.get("media_type", "text"),
+                topic.get("thumbnail_url", ""),
+                topic.get("source_url", ""),
+                topic.get("verification_status", "unverified"),
             ),
         )
 
@@ -308,6 +319,20 @@ def save_refresh_log(
             trend_update_count,
         ),
     )
+
+
+def prune_old_news(cursor, retention_days: int) -> int:
+    if retention_days <= 0:
+        return 0
+
+    cursor.execute(
+        """
+        DELETE FROM news_articles
+        WHERE datetime(fetched_at) < datetime('now', ?)
+        """,
+        (f"-{retention_days} days",),
+    )
+    return cursor.rowcount or 0
 
 
 def _hydrate_news_rows(conn, cursor, rows):
@@ -482,7 +507,8 @@ def get_trending_topics(region: Optional[str] = None):
         SELECT topic, title, normalized_topic, region, intensity, article_count, freshness,
                credibility_warning, source_signals, platform_signals, related_articles_count,
                recency_score, virality_score, verification_score, verification_gap_score,
-               freshness_label, confidence_note
+               freshness_label, confidence_note, platform, media_type, thumbnail_url,
+               source_url, verification_status
         FROM trending_topics
     """
     params = []
@@ -530,6 +556,15 @@ def get_overview_stats():
 
     cursor.execute(
         """
+        SELECT COUNT(*) AS count
+        FROM user_checks
+        WHERE datetime(created_at) >= datetime('now', 'start of day')
+        """
+    )
+    checks_today = cursor.fetchone()["count"]
+
+    cursor.execute(
+        """
         SELECT batch_label, finished_at
         FROM refresh_logs
         ORDER BY id DESC
@@ -545,6 +580,7 @@ def get_overview_stats():
         "world_articles": world_articles,
         "reliable_count": reliable_count,
         "suspicious_count": suspicious_count,
+        "checks_today": checks_today,
         "last_refresh_batch": latest["batch_label"] if latest else None,
         "last_refresh_at": latest["finished_at"] if latest else None,
     }

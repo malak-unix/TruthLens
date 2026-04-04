@@ -61,7 +61,10 @@ def build_memory_snippet() -> str:
     return "\n".join(lines)
 
 
-def detect_language(message: str) -> str:
+def detect_language(message: str, ui_language: str | None = None) -> str:
+    if ui_language in {"fr", "ar"}:
+        return "fr" if ui_language == "fr" else "fr"
+
     normalized = (message or "").strip().lower()
     if any(token in normalized for token in GREETING_PATTERNS["fr"]) or any(
         token in normalized for token in ("maroc", "tendance", "verifier", "verifie", "affirmation", "pourquoi")
@@ -90,7 +93,7 @@ def extract_first_url(message: str) -> str:
 def classify_intent(payload: ChatRequest) -> RoutedIntent:
     message = (payload.message or "").strip()
     normalized = message.lower()
-    language = detect_language(message)
+    language = detect_language(message, payload.ui_language)
 
     if looks_like_greeting(message):
         return RoutedIntent("greeting", language)

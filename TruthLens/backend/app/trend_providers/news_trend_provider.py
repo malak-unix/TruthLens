@@ -58,6 +58,14 @@ def collect_trends(region: str, articles: list[dict]) -> TrendProviderResult:
         avg_rank = sum(float(article.get("ranking_score", 0)) for article in articles_for_topic) / len(articles_for_topic)
         avg_verification = sum(float(article.get("credibility_score", 0)) for article in articles_for_topic) / len(articles_for_topic)
         latest = max(article.get("published_at", "") for article in articles_for_topic)
+        lead_article = max(articles_for_topic, key=lambda article: float(article.get("ranking_score", 0)))
+        verification_status = (
+            "supported by stronger sources"
+            if avg_verification >= 78
+            else "needs context"
+            if avg_verification >= 55
+            else "unverified"
+        )
 
         signals.append(
             TrendSignal(
@@ -74,6 +82,10 @@ def collect_trends(region: str, articles: list[dict]) -> TrendProviderResult:
                 related_articles_count=related_articles_count,
                 verification_score=avg_verification / 10.0,
                 note="Derived from clustered article coverage.",
+                media_type="image" if lead_article.get("image_url") else "text",
+                thumbnail_url=lead_article.get("image_url", ""),
+                source_url=lead_article.get("url", ""),
+                verification_status=verification_status,
             )
         )
 
