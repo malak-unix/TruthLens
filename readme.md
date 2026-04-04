@@ -3,4 +3,7 @@ This team is composed of the following members :
     - Sebbagh Aymane
     - Achari Malak
     - El Bekali Aicha
+
+Live application:
+    - https://truth-lens-lyart-nine.vercel.app/
     
